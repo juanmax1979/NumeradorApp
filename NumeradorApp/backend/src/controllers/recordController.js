@@ -183,8 +183,8 @@ async function createRecord(req, res, next) {
       FROM dbo.registros WITH (UPDLOCK, HOLDLOCK)
       WHERE tipo = @tipo AND anio = @anio AND dependencia_id = @dependenciaId;
 
-      INSERT INTO dbo.registros (dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha)
-      VALUES (@dependencia, @tipo, @nuevoNumero, @anio, @expediente, @detalle, @usuario, SYSUTCDATETIME());
+      INSERT INTO dbo.registros (dependencia_id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha)
+      VALUES (@dependenciaId, @dependencia, @tipo, @nuevoNumero, @anio, @expediente, @detalle, @usuario, SYSUTCDATETIME());
 
       SELECT SCOPE_IDENTITY() AS id, @nuevoNumero AS numero, @anio AS anio;
     `);
@@ -194,6 +194,7 @@ async function createRecord(req, res, next) {
 
     await logAudit({
       registroId: Number(created.id),
+      dependenciaId,
       dependencia: req.user.dependencia || "GENERAL",
       accion: "CREACION",
       campo: "-",
@@ -252,6 +253,7 @@ async function updateRecord(req, res, next) {
     if (nuevoExpte !== row.expediente) {
       await logAudit({
         registroId: id,
+        dependenciaId,
         dependencia: req.user.dependencia || "GENERAL",
         accion: "MODIFICACION",
         campo: "expediente",
@@ -263,6 +265,7 @@ async function updateRecord(req, res, next) {
     if (nuevoDetalle !== row.detalle) {
       await logAudit({
         registroId: id,
+        dependenciaId,
         dependencia: req.user.dependencia || "GENERAL",
         accion: "MODIFICACION",
         campo: "detalle",
@@ -302,6 +305,7 @@ async function toggleRemitido(req, res, next) {
       );
       await logAudit({
         registroId: id,
+        dependenciaId,
         dependencia: req.user.dependencia || "GENERAL",
         accion: "DESMARCAR_REMITIDO",
         campo: "remitido",
@@ -320,6 +324,7 @@ async function toggleRemitido(req, res, next) {
     );
     await logAudit({
       registroId: id,
+      dependenciaId,
       dependencia: req.user.dependencia || "GENERAL",
       accion: "MARCAR_REMITIDO",
       campo: "remitido",
@@ -360,6 +365,7 @@ async function annulRecord(req, res, next) {
     );
     await logAudit({
       registroId: id,
+      dependenciaId,
       dependencia: req.user.dependencia || "GENERAL",
       accion: "ANULACION",
       campo: "expediente",
@@ -387,6 +393,7 @@ async function deleteRecord(req, res, next) {
 
     await logAudit({
       registroId: id,
+      dependenciaId,
       dependencia: req.user.dependencia || "GENERAL",
       accion: "BORRADO",
       campo: "registro_completo",
