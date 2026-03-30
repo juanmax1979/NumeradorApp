@@ -1,0 +1,112 @@
+IF DB_ID('NumeradorDB') IS NULL
+BEGIN
+    CREATE DATABASE NumeradorDB;
+END;
+GO
+
+USE NumeradorDB;
+GO
+
+IF OBJECT_ID('dbo.dependencias', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.dependencias (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        nombre NVARCHAR(150) NOT NULL UNIQUE,
+        activa BIT NOT NULL DEFAULT 1
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.dependencias WHERE nombre = 'GENERAL')
+BEGIN
+    INSERT INTO dbo.dependencias (nombre, activa) VALUES ('GENERAL', 1);
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.dependencias WHERE nombre = 'Juzgado Correccional - Charata')
+BEGIN
+    INSERT INTO dbo.dependencias (nombre, activa) VALUES ('Juzgado Correccional - Charata', 1);
+END;
+GO
+
+IF OBJECT_ID('dbo.registros', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.registros (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        dependencia_id INT NOT NULL,
+        dependencia NVARCHAR(150) NOT NULL DEFAULT 'GENERAL',
+        tipo NVARCHAR(80) NOT NULL,
+        numero INT NOT NULL,
+        anio INT NOT NULL,
+        expediente NVARCHAR(120) NOT NULL,
+        detalle NVARCHAR(500) NOT NULL DEFAULT '',
+        usuario NVARCHAR(120) NOT NULL,
+        fecha DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        remitido BIT NOT NULL DEFAULT 0,
+        remitido_por NVARCHAR(120) NOT NULL DEFAULT '',
+        remitido_fecha DATETIME2 NULL,
+        CONSTRAINT FK_registros_dependencias
+            FOREIGN KEY (dependencia_id) REFERENCES dbo.dependencias(id)
+    );
+    CREATE INDEX IX_registros_dep_tipo_anio_numero ON dbo.registros(dependencia_id, tipo, anio, numero DESC);
+    CREATE INDEX IX_registros_fecha ON dbo.registros(fecha DESC);
+END;
+GO
+
+IF OBJECT_ID('dbo.usuarios', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.usuarios (
+        nombre NVARCHAR(120) PRIMARY KEY,
+        password_hash NVARCHAR(255) NOT NULL,
+        rol NVARCHAR(20) NOT NULL,
+        dependencia NVARCHAR(150) NOT NULL DEFAULT 'GENERAL',
+        dependencia_id INT NOT NULL,
+        CONSTRAINT FK_usuarios_dependencias
+            FOREIGN KEY (dependencia_id) REFERENCES dbo.dependencias(id)
+    );
+END;
+GO
+
+IF OBJECT_ID('dbo.sesiones', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.sesiones (
+        usuario NVARCHAR(120) PRIMARY KEY,
+        pc_name NVARCHAR(120) NOT NULL,
+        fecha_login DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO
+
+IF OBJECT_ID('dbo.log_auditoria', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.log_auditoria (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        registro_id INT NULL,
+        dependencia_id INT NOT NULL,
+        dependencia NVARCHAR(150) NOT NULL DEFAULT 'GENERAL',
+        accion NVARCHAR(80) NOT NULL,
+        campo_modificado NVARCHAR(120) NOT NULL,
+        valor_anterior NVARCHAR(MAX) NULL,
+        valor_nuevo NVARCHAR(MAX) NULL,
+        usuario NVARCHAR(120) NOT NULL,
+        fecha DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_log_auditoria_dependencias
+            FOREIGN KEY (dependencia_id) REFERENCES dbo.dependencias(id)
+    );
+    CREATE INDEX IX_log_auditoria_fecha ON dbo.log_auditoria(fecha DESC);
+END;
+GO
+
+IF OBJECT_ID('dbo.refresh_tokens', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.refresh_tokens (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        usuario NVARCHAR(120) NOT NULL,
+        token_hash NVARCHAR(128) NOT NULL UNIQUE,
+        expires_at DATETIME2 NOT NULL,
+        created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        revoked_at DATETIME2 NULL
+    );
+    CREATE INDEX IX_refresh_tokens_usuario ON dbo.refresh_tokens(usuario, revoked_at);
+END;
+GO
