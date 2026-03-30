@@ -1,0 +1,18 @@
+# Binarios y datos locales
+*.exe
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Heredado de NumeradorApp (node, build, env)
+node_modules/
+dist/
+build/
+.env
+**/.env
+
+*.log

@@ -1,0 +1,132 @@
+{
+    "OFICIO": {
+        "Comisaría / Div. Violencia de Género": [
+            "Citación imputado (Notif. debate)",
+            "Citación testigos / damnificados",
+            "Conducción por la fuerza pública",
+            "Ordena traslado de detenido",
+            "Inserta rebeldía / Captura",
+            "Deja sin efecto rebeldía / Libertad",
+            "Notifica cómputo de pena / sentencia",
+            "Plan de contingencia damnificada (Género)",
+            "Acompaña cédula"
+        ],
+        "R.N.R.": [
+            "Pide informe de antecedentes",
+            "Comunica rebeldía",
+            "Revocación de rebeldía",
+            "Comunica sobreseimiento",
+            "Comunica prescripción",
+            "Revocación SJP / Probation"
+        ],
+        "Dpto. Judicial D-5 (Antecedentes)": [
+            "Comunica sobreseimiento",
+            "Comunica prescripción",
+            "Remite auto / sentencia"
+        ],
+        "Juzgado de Ejecución Penal": [
+            "Remite sentencia y cómputo de pena",
+            "Remite auto revocación SJP",
+            "Solicita autorización de traslado",
+            "Informa nuevo hecho (causa en trámite)"
+        ],
+        "Juzgado de Paz": [
+            "Las Breñas",
+            "Charata",
+            "Gral. Pinedo",
+            "Gancedo",
+            "Corzuela",
+            "Hermoso Campo"
+        ],
+        "Cámara Criminal / Apelaciones": [
+            "Remite causa por incompetencia",
+            "Remite causa por recurso",
+            "Solicita copia de sentencia/cómputo"
+        ],
+        "Ministerio Público Fiscal": [
+            "Remite actuaciones (Incompetencia/Nulidad)",
+            "Notifica resolución"
+        ],
+        "S.A.E.S.": [
+            "Comunica secuestro",
+            "Ordena decomiso"
+        ],
+        "Juzgado Niñez, Adolescencia y Flia. / UPI": [
+            "Solicita intervención",
+            "Pide informe"
+        ],
+        "Centro Público de Mediación": [
+            "Deriva causa a mediación"
+        ],
+        "Otras Instituciones": [
+            "Municipalidad (Reglas de conducta)",
+            "Hospital (Medidas/Informes)",
+            "Ministerio de Educación",
+            "Patronato de Liberados"
+        ]
+    },
+
+    "AUTO": {
+        "SJP / Probation": [
+            "Concede SJP (Común)",
+            "Concede SJP (Con reglas / estipendio)",
+            "Deniega SJP (Común)",
+            "Deniega SJP (Violencia de Género)",
+            "Revoca SJP (Por Prófugo / Rebeldía)",
+            "Revoca SJP (Por Incumplimiento)"
+        ],
+        "Rebeldía y Captura": [
+            "Declara Rebeldía y Ordena Captura",
+            "Revoca Rebeldía"
+        ],
+        "Trámite de Audiencias": [
+            "Fija audiencia de debate",
+            "Fija nueva audiencia de debate",
+            "Fija audiencia de visu (Juicio Abreviado)",
+            "Suspende audiencia"
+        ],
+        "Auto Inter.": [
+            "Cautelar c/medidas de prohibición",
+            "Admite vía Juicio Abreviado",
+            "Admisión de pruebas (c/ Inv. Suplementaria)",
+            "Hace lugar a Mediación",
+            "Declara Incompetencia (Delito Mayor)",
+            "Declara Nulidad del Requerimiento",
+            "Declara Conexidad / Desconexidad"
+        ]
+    },
+
+    "SENTENCIA TRAMITE": {
+        "Sobreseimiento": [
+            "Por Prescripción (Paso del tiempo)",
+            "Por Prescripción (Funcionario Público)",
+            "Por Cumplimiento SJP (Art. 76 ter CP)",
+            "Por Fallecimiento del imputado",
+            "Por Atipicidad",
+            "Por Conciliación"
+        ],
+        "Sentencia Condenatoria": [
+            "Juicio Abreviado (Condicional)",
+            "Juicio Abreviado (Efectiva / Reincidente)",
+            "Juicio Abreviado (c/ Unificación de penas)",
+            "Juicio Abreviado (Reglas Área Mujer/Género)",
+            "Condenatoria en Debate Común"
+        ],
+        "Sentencia Absolutoria": [
+            "Por in dubio pro reo",
+            "Por Abstención Fiscal",
+            "Por Atipicidad / Causas de Justificación"
+        ],
+        "Resoluciones Complementarias": [
+            "Rectificación de Sentencia"
+        ]
+    },
+
+    "SENTENCIA RELATORIA": {
+        "Sentencia en Recurso": [
+            "Hace lugar al recurso",
+            "Rechaza el recurso",
+            "Declara Nulidad"
+        ]
+    }
+}
