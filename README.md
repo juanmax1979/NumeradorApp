@@ -8,6 +8,7 @@ Replica de la aplicacion original de numeracion judicial, separada en:
 ## Funcionalidades replicadas
 
 - Login por usuario/clave con control de sesion por PC.
+- Login configurable con proveedor local (`bcrypt`) o Active Directory (`LDAP`).
 - Access token + refresh token rotativo (cookie httpOnly).
 - Contexto multi-dependencia (cada usuario opera solo sobre su dependencia).
 - Roles (`admin`, `user`, `robot`) y permisos.
@@ -40,6 +41,19 @@ Replica de la aplicacion original de numeracion judicial, separada en:
    - `JWT_REFRESH_EXPIRES_DAYS` define duracion del refresh token.
    - `COOKIE_SECURE=true` para HTTPS en produccion.
    - `BCRYPT_ROUNDS` recomendado 12 o mayor.
+   - `AUTH_PROVIDER=ad` para autenticar contra Active Directory.
+   - `AD_AUTO_PROVISION=true` para crear usuario local al primer login AD.
+   - `AD_DEFAULT_ROLE` rol para el auto-alta (recomendado `user`).
+   - `AD_DEFAULT_DEPENDENCIA` dependencia por defecto en el auto-alta.
+   - Para AD completar:
+     - `AD_URL` (ej: `ldap://dc01.mi-organizacion.local:389`)
+     - `AD_BASE_DN` (ej: `DC=mi-organizacion,DC=local`)
+     - `AD_USER_FILTER` (por defecto `sAMAccountName`)
+     - `AD_DNI_ATTRIBUTE` (por defecto `employeeID`) para guardar DNI en auto-alta
+     - `AD_DNI_FALLBACK_ATTRIBUTES` (por defecto `employeeNumber,serialNumber`) si el atributo principal no viene informado
+     - `AD_FULLNAME_ATTRIBUTE` (por defecto `displayName`) para guardar nombre completo
+     - Opcional: `AD_BIND_DN` y `AD_BIND_PASSWORD` para buscar DN de usuario
+     - Si no usas bind tecnico, configurar `AD_UPN_SUFFIX` para login directo `usuario@dominio`
 3. Instalar dependencias:
    - `npm install`
 4. Iniciar:
@@ -77,3 +91,4 @@ Frontend por defecto: `http://localhost:5173`
 - `GET /api/users` (admin)
 - `PUT /api/users/:nombre/password` (admin)
 - `PUT /api/users/:nombre/dependencia` (admin)
+- `PUT /api/users/:nombre/dni` (admin)

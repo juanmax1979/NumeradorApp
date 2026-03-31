@@ -68,6 +68,14 @@ const updateDependenciaSchema = z.object({
   dependenciaId: z.coerce.number().int().positive(),
 });
 
+const updateUserDniSchema = z.object({
+  dni: z
+    .string()
+    .trim()
+    .max(20)
+    .regex(/^\d*$/, "El DNI debe contener solo números"),
+});
+
 module.exports = {
   tiposEnum,
   loginSchema,
@@ -78,4 +86,5 @@ module.exports = {
   exportRecordsQuerySchema,
   resetPasswordSchema,
   updateDependenciaSchema,
+  updateUserDniSchema,
 };

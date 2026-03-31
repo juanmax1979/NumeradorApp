@@ -4,7 +4,14 @@ const { runQuery } = require("../config/db");
 async function listUsers(req, res, next) {
   try {
     const rs = await runQuery(
-      `SELECT u.nombre, u.rol, u.dependencia_id AS dependenciaId, d.nombre AS dependencia
+      `SELECT
+         u.nombre,
+         u.usuario,
+         u.nombre_completo AS nombreCompleto,
+         u.dni,
+         u.rol,
+         u.dependencia_id AS dependenciaId,
+         d.nombre AS dependencia
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
        ORDER BY rol, nombre`,
@@ -69,4 +76,26 @@ async function updateDependencia(req, res, next) {
   }
 }
 
-module.exports = { listUsers, resetPassword, updateDependencia };
+async function updateDni(req, res, next) {
+  try {
+    const { nombre } = req.params;
+    const dniRaw = String(req.body?.dni || "").trim();
+    const dni = dniRaw || null;
+
+    const rs = await runQuery(
+      "UPDATE dbo.usuarios SET dni = @dni WHERE nombre = @nombre",
+      { nombre, dni }
+    );
+    if (rs.rowsAffected[0] === 0) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+    return res.json({ message: `DNI de ${nombre} actualizado` });
+  } catch (error) {
+    if (Number(error?.number) === 2601 || Number(error?.number) === 2627) {
+      return res.status(409).json({ message: "El DNI ya está asignado a otro usuario" });
+    }
+    return next(error);
+  }
+}
+
+module.exports = { listUsers, resetPassword, updateDependencia, updateDni };
