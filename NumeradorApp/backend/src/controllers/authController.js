@@ -1,4 +1,5 @@
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const { runQuery } = require("../config/db");
 const {
   signAccessToken,
@@ -7,6 +8,10 @@ const {
   revokeRefreshToken,
   consumeRefreshToken,
 } = require("../services/tokenService");
+const {
+  isActiveDirectoryAuthEnabled,
+  authenticateAgainstActiveDirectory,
+} = require("../services/adAuthService");
 
 function refreshCookieOptions() {
   const secure = String(process.env.COOKIE_SECURE || "false") === "true";
@@ -20,6 +25,69 @@ function refreshCookieOptions() {
   };
 }
 
+async function resolveDefaultDependencia() {
+  const configured = String(process.env.AD_DEFAULT_DEPENDENCIA || "GENERAL").trim();
+  const rsByName = await runQuery(
+    "SELECT TOP 1 id, nombre FROM dbo.dependencias WHERE nombre = @nombre AND activa = 1",
+    { nombre: configured }
+  );
+  if (rsByName.recordset[0]) return rsByName.recordset[0];
+
+  const rsFallback = await runQuery(
+    "SELECT TOP 1 id, nombre FROM dbo.dependencias WHERE activa = 1 ORDER BY id ASC",
+    {}
+  );
+  return rsFallback.recordset[0] || null;
+}
+
+async function ensureLocalUserForAdLogin(usuario, fullName = null, dni = null) {
+  const role = String(process.env.AD_DEFAULT_ROLE || "user").trim() || "user";
+  const dep = await resolveDefaultDependencia();
+  if (!dep) {
+    throw new Error("No hay dependencias activas para aprovisionar usuario AD");
+  }
+
+  const rounds = Number(process.env.BCRYPT_ROUNDS || 12);
+  const placeholder = `ad:${crypto.randomUUID()}`;
+  const hash = await bcrypt.hash(placeholder, rounds);
+  await runQuery(
+    `INSERT INTO dbo.usuarios (nombre, usuario, nombre_completo, dni, password_hash, rol, dependencia, dependencia_id)
+     VALUES (@nombre, @usuario, @nombre_completo, @dni, @password_hash, @rol, @dependencia, @dependencia_id)`,
+    {
+      nombre: usuario,
+      usuario,
+      nombre_completo: fullName,
+      dni,
+      password_hash: hash,
+      rol: role,
+      dependencia: dep.nombre,
+      dependencia_id: dep.id,
+    }
+  );
+}
+
+async function syncLocalUserFromAd(loginName, fullName, dni) {
+  await runQuery(
+    `UPDATE dbo.usuarios
+     SET
+       usuario = COALESCE(NULLIF(usuario, ''), @usuario),
+       nombre_completo = CASE
+         WHEN @nombre_completo IS NOT NULL AND LTRIM(RTRIM(@nombre_completo)) <> '' THEN @nombre_completo
+         ELSE nombre_completo
+       END,
+       dni = CASE
+         WHEN @dni IS NOT NULL AND LTRIM(RTRIM(@dni)) <> '' THEN @dni
+         ELSE dni
+       END
+     WHERE nombre = @usuario OR usuario = @usuario`,
+    {
+      usuario: loginName,
+      nombre_completo: fullName,
+      dni,
+    }
+  );
+}
+
 async function login(req, res, next) {
   try {
     const { usuario, password, pcName, forceSession } = req.body;
@@ -27,67 +95,199 @@ async function login(req, res, next) {
       return res.status(400).json({ message: "Usuario y contraseña son obligatorios" });
     }
 
-    const userRs = await runQuery(
-      `SELECT
-         u.nombre,
-         u.password_hash,
-         u.rol,
-         u.dependencia,
-         u.dependencia_id,
-         d.nombre AS dependencia_nombre
-       FROM dbo.usuarios u
-       LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
-       WHERE u.nombre = @usuario`,
-      { usuario }
-    );
-    const user = userRs.recordset[0];
-    if (!user) {
-      return res.status(401).json({ message: "Usuario no encontrado" });
-    }
+    if (isActiveDirectoryAuthEnabled()) {
+      const adResult = await authenticateAgainstActiveDirectory(usuario, password);
+      if (!adResult.ok) {
+        return res.status(401).json({ message: "Credenciales inválidas" });
+      }
+      const loginName = String(adResult.username || usuario).trim();
+      const loginFullName = adResult.fullName || null;
+      const loginDni = adResult.dni || null;
+      const autoProvisionEnabled =
+        String(process.env.AD_AUTO_PROVISION || "true").toLowerCase() === "true";
 
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) {
-      return res.status(401).json({ message: "Contraseña incorrecta" });
-    }
+      let userRs = await runQuery(
+        `SELECT
+           u.nombre,
+           u.usuario,
+           u.nombre_completo,
+           u.dni,
+           u.password_hash,
+           u.rol,
+           u.dependencia,
+           u.dependencia_id,
+           d.nombre AS dependencia_nombre
+         FROM dbo.usuarios u
+         LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         WHERE u.nombre = @usuario OR u.usuario = @usuario`,
+        { usuario: loginName }
+      );
+      let user = userRs.recordset[0];
 
-    const pc = (pcName || "PC-Desconocida").slice(0, 120);
-    const sessionRs = await runQuery(
-      "SELECT usuario, pc_name FROM dbo.sesiones WHERE usuario = @usuario",
-      { usuario }
-    );
-    const activeSession = sessionRs.recordset[0];
+      if (!user && autoProvisionEnabled) {
+        try {
+          await ensureLocalUserForAdLogin(loginName, loginFullName, loginDni);
+        } catch (provisionError) {
+          if (Number(provisionError?.number) === 2601 || Number(provisionError?.number) === 2627) {
+            return res.status(409).json({
+              message: "No se pudo auto-crear el usuario porque el DNI ya existe",
+            });
+          }
+          throw provisionError;
+        }
+        userRs = await runQuery(
+          `SELECT
+             u.nombre,
+             u.usuario,
+             u.nombre_completo,
+             u.dni,
+             u.password_hash,
+             u.rol,
+             u.dependencia,
+             u.dependencia_id,
+             d.nombre AS dependencia_nombre
+           FROM dbo.usuarios u
+           LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+           WHERE u.nombre = @usuario OR u.usuario = @usuario`,
+          { usuario: loginName }
+        );
+        user = userRs.recordset[0];
+      }
 
-    if (activeSession && activeSession.pc_name !== pc && !forceSession) {
-      return res.status(409).json({
-        code: "SESSION_ACTIVE",
-        message: `El usuario está activo en ${activeSession.pc_name}`,
-        activePc: activeSession.pc_name,
+      if (!user) {
+        return res.status(403).json({
+          message: "Usuario autenticado en AD, pero sin alta local",
+        });
+      }
+
+      await syncLocalUserFromAd(loginName, loginFullName, loginDni);
+      userRs = await runQuery(
+        `SELECT
+           u.nombre,
+           u.usuario,
+           u.nombre_completo,
+           u.dni,
+           u.password_hash,
+           u.rol,
+           u.dependencia,
+           u.dependencia_id,
+           d.nombre AS dependencia_nombre
+         FROM dbo.usuarios u
+         LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         WHERE u.nombre = @usuario OR u.usuario = @usuario`,
+        { usuario: loginName }
+      );
+      user = userRs.recordset[0];
+
+      const pc = (pcName || "PC-Desconocida").slice(0, 120);
+      const sessionRs = await runQuery(
+        "SELECT usuario, pc_name FROM dbo.sesiones WHERE usuario = @usuario",
+        { usuario: loginName }
+      );
+      const activeSession = sessionRs.recordset[0];
+
+      if (activeSession && activeSession.pc_name !== pc && !forceSession) {
+        return res.status(409).json({
+          code: "SESSION_ACTIVE",
+          message: `El usuario está activo en ${activeSession.pc_name}`,
+          activePc: activeSession.pc_name,
+        });
+      }
+
+      await runQuery(
+        `MERGE dbo.sesiones AS target
+         USING (SELECT @usuario AS usuario, @pc_name AS pc_name) AS source
+         ON target.usuario = source.usuario
+         WHEN MATCHED THEN UPDATE SET pc_name = source.pc_name, fecha_login = SYSUTCDATETIME()
+         WHEN NOT MATCHED THEN INSERT (usuario, pc_name, fecha_login) VALUES (source.usuario, source.pc_name, SYSUTCDATETIME());`,
+        { usuario: loginName, pc_name: pc }
+      );
+
+      const token = signAccessToken(user);
+      const refreshToken = generateRefreshToken();
+      await saveRefreshToken(user.nombre, refreshToken);
+      res.cookie("refreshToken", refreshToken, refreshCookieOptions());
+
+      return res.json({
+        token,
+        user: {
+          nombre: user.nombre,
+          usuario: user.usuario || user.nombre,
+          nombreCompleto: user.nombre_completo || user.nombre,
+          dni: user.dni || null,
+          rol: user.rol,
+          dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
+          dependenciaId: Number(user.dependencia_id),
+        },
+      });
+    } else {
+      const userRs = await runQuery(
+        `SELECT
+           u.nombre,
+           u.usuario,
+           u.nombre_completo,
+           u.dni,
+           u.password_hash,
+           u.rol,
+           u.dependencia,
+           u.dependencia_id,
+           d.nombre AS dependencia_nombre
+         FROM dbo.usuarios u
+         LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         WHERE u.nombre = @usuario OR u.usuario = @usuario`,
+        { usuario }
+      );
+      const user = userRs.recordset[0];
+      if (!user) {
+        return res.status(401).json({ message: "Usuario no encontrado" });
+      }
+
+      const ok = await bcrypt.compare(password, user.password_hash);
+      if (!ok) {
+        return res.status(401).json({ message: "Contraseña incorrecta" });
+      }
+      const pc = (pcName || "PC-Desconocida").slice(0, 120);
+      const sessionRs = await runQuery(
+        "SELECT usuario, pc_name FROM dbo.sesiones WHERE usuario = @usuario",
+        { usuario }
+      );
+      const activeSession = sessionRs.recordset[0];
+
+      if (activeSession && activeSession.pc_name !== pc && !forceSession) {
+        return res.status(409).json({
+          code: "SESSION_ACTIVE",
+          message: `El usuario está activo en ${activeSession.pc_name}`,
+          activePc: activeSession.pc_name,
+        });
+      }
+
+      await runQuery(
+        `MERGE dbo.sesiones AS target
+         USING (SELECT @usuario AS usuario, @pc_name AS pc_name) AS source
+         ON target.usuario = source.usuario
+         WHEN MATCHED THEN UPDATE SET pc_name = source.pc_name, fecha_login = SYSUTCDATETIME()
+         WHEN NOT MATCHED THEN INSERT (usuario, pc_name, fecha_login) VALUES (source.usuario, source.pc_name, SYSUTCDATETIME());`,
+        { usuario, pc_name: pc }
+      );
+
+      const token = signAccessToken(user);
+      const refreshToken = generateRefreshToken();
+      await saveRefreshToken(user.nombre, refreshToken);
+      res.cookie("refreshToken", refreshToken, refreshCookieOptions());
+
+      return res.json({
+        token,
+        user: {
+          nombre: user.nombre,
+          usuario: user.usuario || user.nombre,
+          nombreCompleto: user.nombre_completo || user.nombre,
+          dni: user.dni || null,
+          rol: user.rol,
+          dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
+          dependenciaId: Number(user.dependencia_id),
+        },
       });
     }
-
-    await runQuery(
-      `MERGE dbo.sesiones AS target
-       USING (SELECT @usuario AS usuario, @pc_name AS pc_name) AS source
-       ON target.usuario = source.usuario
-       WHEN MATCHED THEN UPDATE SET pc_name = source.pc_name, fecha_login = SYSUTCDATETIME()
-       WHEN NOT MATCHED THEN INSERT (usuario, pc_name, fecha_login) VALUES (source.usuario, source.pc_name, SYSUTCDATETIME());`,
-      { usuario, pc_name: pc }
-    );
-
-    const token = signAccessToken(user);
-    const refreshToken = generateRefreshToken();
-    await saveRefreshToken(user.nombre, refreshToken);
-    res.cookie("refreshToken", refreshToken, refreshCookieOptions());
-
-    return res.json({
-      token,
-      user: {
-        nombre: user.nombre,
-        rol: user.rol,
-        dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
-        dependenciaId: Number(user.dependencia_id),
-      },
-    });
   } catch (error) {
     return next(error);
   }
@@ -95,6 +295,12 @@ async function login(req, res, next) {
 
 async function changeOwnPassword(req, res, next) {
   try {
+    if (isActiveDirectoryAuthEnabled()) {
+      return res.status(400).json({
+        message: "El cambio de contraseña se gestiona desde Active Directory",
+      });
+    }
+
     const { currentPassword, newPassword } = req.body;
     const usuario = req.user.nombre;
     const rs = await runQuery(
@@ -157,13 +363,16 @@ async function refresh(req, res, next) {
     const userRs = await runQuery(
       `SELECT
          u.nombre,
+         u.usuario,
+         u.nombre_completo,
+         u.dni,
          u.rol,
          u.dependencia,
          u.dependencia_id,
          d.nombre AS dependencia_nombre
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
-       WHERE u.nombre = @usuario`,
+       WHERE u.nombre = @usuario OR u.usuario = @usuario`,
       { usuario }
     );
     const user = userRs.recordset[0];
@@ -178,6 +387,9 @@ async function refresh(req, res, next) {
       token,
       user: {
         nombre: user.nombre,
+        usuario: user.usuario || user.nombre,
+        nombreCompleto: user.nombre_completo || user.nombre,
+        dni: user.dni || null,
         rol: user.rol,
         dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
         dependenciaId: Number(user.dependencia_id),

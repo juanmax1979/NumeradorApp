@@ -99,6 +99,8 @@ function App() {
 
   const [statsYear, setStatsYear] = useState(new Date().getFullYear());
   const [stats, setStats] = useState({ totals: [], monthly: [], ranking: [], auditLog: [] });
+  const displayName = user?.nombreCompleto || user?.nombre || "-";
+  const displayUser = user?.usuario || user?.nombre || "-";
 
   function localLogout() {
     setToken("");
@@ -333,7 +335,7 @@ function App() {
     ]);
 
     const listado = users
-      .map((u) => `${u.nombre} [${u.dependencia || "GENERAL"}]`)
+      .map((u) => `${u.nombreCompleto || u.nombre} (${u.usuario || u.nombre}) [${u.dependencia || "GENERAL"}]`)
       .join("\n");
     const nombre = prompt(`Usuarios disponibles:\n\n${listado}\n\nUsuario a cambiar de dependencia:`);
     if (!nombre) return;
@@ -350,6 +352,30 @@ function App() {
 
     await api.put(`/users/${encodeURIComponent(nombre)}/dependencia`, { dependenciaId });
     alert("Dependencia actualizada");
+  }
+
+  async function adminSetDni() {
+    if (user?.rol !== "admin") return;
+    const { data: users } = await api.get("/users");
+    const listado = users
+      .map((u) => `${u.nombreCompleto || u.nombre} (${u.usuario || u.nombre}) [DNI: ${u.dni || "-"}]`)
+      .join("\n");
+    const nombre = prompt(`Usuarios disponibles:\n\n${listado}\n\nUsuario a cargar DNI:`);
+    if (!nombre) return;
+
+    const current = users.find((u) => u.nombre === nombre)?.dni || "";
+    const dni = prompt(
+      `DNI para ${nombre} (solo numeros). Dejar vacio para limpiar:`,
+      current
+    );
+    if (dni === null) return;
+    if (dni.trim() && !/^\d+$/.test(dni.trim())) {
+      alert("El DNI debe contener solo numeros");
+      return;
+    }
+
+    await api.put(`/users/${encodeURIComponent(nombre)}/dni`, { dni: dni.trim() });
+    alert("DNI actualizado");
   }
 
   if (!token) {
@@ -405,13 +431,14 @@ function App() {
             className="topbar-logo"
           />
           <div className="topbar-user">
-            <strong>{user?.nombre}</strong> ({user?.rol}) - {user?.dependencia || "GENERAL"}
+            <strong>{displayName}</strong> ({displayUser}) - ({user?.rol}) - {user?.dependencia || "GENERAL"}
           </div>
         </div>
         <div className="topbar-actions">
           <button onClick={changeOwnPassword}>Cambiar contrasena</button>
           {user?.rol === "admin" && <button onClick={adminResetPassword}>Reset Clave</button>}
           {user?.rol === "admin" && <button onClick={adminSetDependencia}>Set Dependencia</button>}
+          {user?.rol === "admin" && <button onClick={adminSetDni}>Set DNI</button>}
           <button onClick={refreshCurrentView}>Refrescar</button>
           <button onClick={doLogout}>Salir</button>
         </div>
