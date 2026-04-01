@@ -10,6 +10,7 @@ const TYPES = [
 ];
 
 const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS"];
+const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function fmtDate(value) {
   if (!value) return "-";
@@ -65,6 +66,14 @@ function isValidExpediente(value) {
   return EXPEDIENTE_REGEX.test(String(value || "").trim());
 }
 
+function generateCaptchaCode(length = 6) {
+  let value = "";
+  for (let i = 0; i < length; i += 1) {
+    value += CAPTCHA_CHARS[Math.floor(Math.random() * CAPTCHA_CHARS.length)];
+  }
+  return value;
+}
+
 function App() {
   const [token, setToken] = useState(localStorage.getItem("numerador_token") || "");
   const [user, setUser] = useState(
@@ -76,6 +85,8 @@ function App() {
     password: "",
     pcName: window.navigator.userAgent.slice(0, 60),
   });
+  const [captchaCode, setCaptchaCode] = useState(() => generateCaptchaCode());
+  const [captchaInput, setCaptchaInput] = useState("");
   const [loginError, setLoginError] = useState("");
 
   const [activeTab, setActiveTab] = useState(TYPES[0]);
@@ -215,6 +226,12 @@ function App() {
 
   async function doLogin(forceSession = false) {
     setLoginError("");
+    if (captchaInput.trim().toUpperCase() !== captchaCode) {
+      setLoginError("Codigo de verificacion incorrecto");
+      setCaptchaCode(generateCaptchaCode());
+      setCaptchaInput("");
+      return;
+    }
     try {
       const { data } = await api.post("/auth/login", { ...loginForm, forceSession });
       setToken(data.token);
@@ -230,6 +247,8 @@ function App() {
         return;
       }
       setLoginError(error.response?.data?.message || "No se pudo iniciar sesión");
+      setCaptchaCode(generateCaptchaCode());
+      setCaptchaInput("");
     }
   }
 
@@ -410,6 +429,27 @@ function App() {
               placeholder="Contraseña"
               value={loginForm.password}
               onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
+            />
+            <div className="captcha-row">
+              <div className="captcha-code" aria-label="Codigo de verificacion">
+                {captchaCode}
+              </div>
+              <button
+                type="button"
+                className="captcha-refresh"
+                onClick={() => {
+                  setCaptchaCode(generateCaptchaCode());
+                  setCaptchaInput("");
+                  setLoginError("");
+                }}
+              >
+                Regenerar
+              </button>
+            </div>
+            <input
+              placeholder="Ingrese el codigo de verificacion"
+              value={captchaInput}
+              onChange={(e) => setCaptchaInput(e.target.value)}
             />
             <button type="submit">Iniciar Sesión</button>
             {loginError && <div className="error">{loginError}</div>}
