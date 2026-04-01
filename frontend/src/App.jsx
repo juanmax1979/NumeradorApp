@@ -339,27 +339,6 @@ function App() {
     if (activeTab === "ESTADISTICAS") await loadStats();
   }
 
-  async function changeOwnPassword() {
-    const currentPassword = prompt("Contraseña actual:");
-    if (!currentPassword) return;
-    const newPassword = prompt("Nueva contraseña (mínimo 8, con mayúscula y número):");
-    if (!newPassword) return;
-    await api.post("/auth/change-password", { currentPassword, newPassword });
-    alert("Contraseña actualizada");
-  }
-
-  async function adminResetPassword() {
-    if (user?.rol !== "admin") return;
-    const { data } = await api.get("/users");
-    const nombres = data.map((u) => u.nombre).join("\n");
-    const nombre = prompt(`Usuarios disponibles:\n\n${nombres}\n\nUsuario a cambiar:`);
-    if (!nombre) return;
-    const newPassword = prompt(`Nueva clave para ${nombre} (mínimo 8, con mayúscula y número):`);
-    if (!newPassword) return;
-    await api.put(`/users/${encodeURIComponent(nombre)}/password`, { newPassword });
-    alert("Clave actualizada");
-  }
-
   async function adminSetDependencia() {
     if (user?.rol !== "admin") return;
     const [{ data: users }, { data: dependencias }] = await Promise.all([
@@ -478,22 +457,8 @@ function App() {
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / currentPagination.pageSize));
   const safePage = Math.min(currentPagination.page, totalPages);
-  const paginatedRows = useMemo(() => {
-    const from = (safePage - 1) * currentPagination.pageSize;
-    return rows.slice(from, from + currentPagination.pageSize);
-  }, [rows, safePage, currentPagination.pageSize]);
-
-  useEffect(() => {
-    if (currentPagination.page !== safePage) {
-      setPaginationByTab((prev) => ({
-        ...prev,
-        [activeTab]: {
-          ...(prev[activeTab] || { page: 1, pageSize: 20 }),
-          page: safePage,
-        },
-      }));
-    }
-  }, [activeTab, currentPagination.page, safePage]);
+  const from = (safePage - 1) * currentPagination.pageSize;
+  const paginatedRows = rows.slice(from, from + currentPagination.pageSize);
 
   return (
     <div className="app">
@@ -509,8 +474,6 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <button onClick={changeOwnPassword}>Cambiar contrasena</button>
-          {user?.rol === "admin" && <button onClick={adminResetPassword}>Reset Clave</button>}
           {user?.rol === "admin" && <button onClick={adminSetDependencia}>Set Dependencia</button>}
           {user?.rol === "admin" && <button onClick={adminSetDni}>Set DNI</button>}
           <button onClick={refreshCurrentView}>Refrescar</button>
