@@ -5,5 +5,18 @@ build/
 .env
 backend/.env
 frontend/.env
+Mobile/.env
 
 *.log
+
+# Expo (cache en la raíz del repo si se abre el proyecto desde arriba)
+.expo/
+
+# Bases locales / binarios sueltos
+*.db
+*.sqlite
+*.sqlite3
+*.exe
+
+# Carpetas temporales de export de prueba
+.expo-export-test/
