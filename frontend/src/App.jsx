@@ -11,6 +11,7 @@ const TYPES = [
 
 const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS"];
 const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
 function fmtDate(value) {
   if (!value) return "-";
@@ -112,6 +113,11 @@ function App() {
   const [stats, setStats] = useState({ totals: [], monthly: [], ranking: [], auditLog: [] });
   const displayName = user?.nombreCompleto || user?.nombre || "-";
   const displayUser = user?.usuario || user?.nombre || "-";
+  const [paginationByTab, setPaginationByTab] = useState(() =>
+    Object.fromEntries(
+      TAB_KEYS.map((tab) => [tab, { page: 1, pageSize: 20 }])
+    )
+  );
 
   function localLogout() {
     setToken("");
@@ -178,6 +184,10 @@ function App() {
   async function loadTipoRows(tipo, q) {
     const { data } = await api.get("/records", { params: { tipo, q, limit: 150 } });
     setTipoRows(data);
+    setPaginationByTab((prev) => ({
+      ...prev,
+      [tipo]: { ...(prev[tipo] || { page: 1, pageSize: 20 }), page: 1 },
+    }));
   }
 
   async function loadGlobalRows() {
@@ -193,6 +203,10 @@ function App() {
       },
     });
     setGlobalRows(data);
+    setPaginationByTab((prev) => ({
+      ...prev,
+      BUSCADOR: { ...(prev.BUSCADOR || { page: 1, pageSize: 20 }), page: 1 },
+    }));
   }
 
   async function loadStats() {
@@ -460,6 +474,26 @@ function App() {
   }
 
   const rows = activeTab === "BUSCADOR" ? globalRows : tipoRows;
+  const currentPagination = paginationByTab[activeTab] || { page: 1, pageSize: 20 };
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / currentPagination.pageSize));
+  const safePage = Math.min(currentPagination.page, totalPages);
+  const paginatedRows = useMemo(() => {
+    const from = (safePage - 1) * currentPagination.pageSize;
+    return rows.slice(from, from + currentPagination.pageSize);
+  }, [rows, safePage, currentPagination.pageSize]);
+
+  useEffect(() => {
+    if (currentPagination.page !== safePage) {
+      setPaginationByTab((prev) => ({
+        ...prev,
+        [activeTab]: {
+          ...(prev[activeTab] || { page: 1, pageSize: 20 }),
+          page: safePage,
+        },
+      }));
+    }
+  }, [activeTab, currentPagination.page, safePage]);
 
   return (
     <div className="app">
@@ -658,7 +692,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {paginatedRows.map((row) => (
                 <tr key={row.id} className={row.expediente === "ANULADO" ? "anulado" : ""}>
                   <td>{row.tipo}</td>
                   <td>{row.numero}/{row.anio}</td>
@@ -683,6 +717,71 @@ function App() {
               ))}
             </tbody>
           </table>
+          <div className="pagination-bar">
+            <div className="pagination-info">
+              Mostrando{" "}
+              {totalRows === 0 ? 0 : (safePage - 1) * currentPagination.pageSize + 1}
+              {" - "}
+              {Math.min(safePage * currentPagination.pageSize, totalRows)} de {totalRows}
+            </div>
+            <div className="pagination-actions">
+              <label htmlFor="page-size-select">Registros:</label>
+              <select
+                id="page-size-select"
+                value={currentPagination.pageSize}
+                onChange={(e) => {
+                  const pageSize = Number(e.target.value);
+                  setPaginationByTab((prev) => ({
+                    ...prev,
+                    [activeTab]: {
+                      ...(prev[activeTab] || { page: 1, pageSize: 20 }),
+                      page: 1,
+                      pageSize,
+                    },
+                  }));
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  setPaginationByTab((prev) => ({
+                    ...prev,
+                    [activeTab]: {
+                      ...(prev[activeTab] || { page: 1, pageSize: 20 }),
+                      page: Math.max(1, safePage - 1),
+                    },
+                  }))
+                }
+                disabled={safePage <= 1}
+              >
+                Anterior
+              </button>
+              <span className="pagination-page">
+                Página {safePage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPaginationByTab((prev) => ({
+                    ...prev,
+                    [activeTab]: {
+                      ...(prev[activeTab] || { page: 1, pageSize: 20 }),
+                      page: Math.min(totalPages, safePage + 1),
+                    },
+                  }))
+                }
+                disabled={safePage >= totalPages}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
         </section>
       </main>
     </div>

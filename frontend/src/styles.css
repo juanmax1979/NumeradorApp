@@ -252,6 +252,38 @@ td {
   margin-bottom: 6px;
 }
 
+.pagination-bar {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--azul-800);
+}
+
+.pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-actions label {
+  font-size: 13px;
+  color: var(--azul-800);
+}
+
+.pagination-page {
+  font-size: 13px;
+  color: var(--azul-800);
+  min-width: 92px;
+  text-align: center;
+}
+
 .danger {
   background: linear-gradient(180deg, #c75c54 0%, #b14a44 100%);
   color: var(--blanco-100);
