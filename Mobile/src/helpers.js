@@ -13,7 +13,7 @@ export const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
-export const EXPEDIENTE_REGEX = /^\d{1,5}\/\d{4}-\d$/;
+export const EXPEDIENTE_REGEX = /^\d{1,8}\/\d{4}-\d{1,4}$/;
 
 export function fmtDate(value) {
   if (!value) return "-";
@@ -29,7 +29,7 @@ export function normalizeExpedienteInput(rawValue) {
 
   for (const ch of cleaned) {
     if (stage === 0) {
-      if (/\d/.test(ch) && left.length < 5) {
+      if (/\d/.test(ch) && left.length < 8) {
         left += ch;
       } else if (ch === "/" && left.length > 0) {
         stage = 1;
@@ -47,7 +47,7 @@ export function normalizeExpedienteInput(rawValue) {
     }
 
     if (stage === 2) {
-      if (/\d/.test(ch) && circ.length < 1) {
+      if (/\d/.test(ch) && circ.length < 4) {
         circ += ch;
       }
     }

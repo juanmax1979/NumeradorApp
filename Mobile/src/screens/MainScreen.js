@@ -200,7 +200,7 @@ export default function MainScreen({ user, onUserUpdate, onLogout }) {
     if (!isValidExpediente(form.expediente)) {
       Alert.alert(
         "Validación",
-        "Expediente inválido. Formato: hasta 5 dígitos / año / - dígito (ej: 12345/2026-1)"
+        "Expediente inválido. Formato: N°/aaaa-circ (hasta 8 dígitos; ej. 3500384/2026-91)"
       );
       return;
     }

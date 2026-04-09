@@ -2,17 +2,30 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { runQuery } = require("../config/db");
 
+function dniForJwtPayload(user) {
+  const raw = user?.dni;
+  if (raw == null || raw === "") return undefined;
+  const n =
+    typeof raw === "number" && Number.isInteger(raw)
+      ? raw
+      : parseInt(String(raw).trim(), 10);
+  if (!Number.isInteger(n) || n < 0 || n > 2147483647) return undefined;
+  return n;
+}
+
 function signAccessToken(user) {
-  return jwt.sign(
-    {
-      nombre: user.nombre,
-      rol: user.rol,
-      dependencia: user.dependencia,
-      dependenciaId: Number(user.dependencia_id),
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRES || "20m" }
-  );
+  const payload = {
+    nombre: user.nombre,
+    rol: user.rol,
+    dependencia: user.dependencia,
+    dependenciaId: Number(user.dependencia_id),
+  };
+  const dni = dniForJwtPayload(user);
+  if (dni !== undefined) payload.dni = dni;
+
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_ACCESS_EXPIRES || "20m",
+  });
 }
 
 function generateRefreshToken() {

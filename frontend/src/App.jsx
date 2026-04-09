@@ -18,7 +18,9 @@ function fmtDate(value) {
   return dayjs(value).format("DD/MM/YYYY HH:mm");
 }
 
-const EXPEDIENTE_REGEX = /^\d{1,5}\/\d{4}-\d$/;
+/** Incluye formato Numerador corto y SIGI largo (NVARCHAR 120 en BD) */
+const EXPEDIENTE_REGEX = /^\d{1,8}\/\d{4}-\d{1,4}$/;
+const SIGI_EXPEDIENTE_REGEX = EXPEDIENTE_REGEX;
 
 function normalizeExpedienteInput(rawValue) {
   const cleaned = String(rawValue || "").replace(/[^\d/-]/g, "");
@@ -29,7 +31,7 @@ function normalizeExpedienteInput(rawValue) {
 
   for (const ch of cleaned) {
     if (stage === 0) {
-      if (/\d/.test(ch) && left.length < 5) {
+      if (/\d/.test(ch) && left.length < 8) {
         left += ch;
       } else if (ch === "/" && left.length > 0) {
         stage = 1;
@@ -47,7 +49,7 @@ function normalizeExpedienteInput(rawValue) {
     }
 
     if (stage === 2) {
-      if (/\d/.test(ch) && circ.length < 1) {
+      if (/\d/.test(ch) && circ.length < 4) {
         circ += ch;
       }
     }
@@ -65,6 +67,90 @@ function normalizeExpedienteInput(rawValue) {
 
 function isValidExpediente(value) {
   return EXPEDIENTE_REGEX.test(String(value || "").trim());
+}
+
+/** Toma el N° de expediente desde una fila SIGI o el valor consultado. */
+/** POST relativo a la base API; por defecto usuario SIGI por DNI (sp1). sp2 en backend es expediente. */
+const SIGI_USUARIO_API_PATH =
+  import.meta.env.VITE_SIGI_USUARIO_ENDPOINT || "/sigi/sp1";
+
+function sigiRowField(row, ...candidateKeys) {
+  if (!row || typeof row !== "object") return "";
+  const map = {};
+  for (const k of Object.keys(row)) {
+    map[String(k).toUpperCase()] = row[k];
+  }
+  for (const key of candidateKeys) {
+    const u = String(key).toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(map, u)) {
+      const v = map[u];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * SP usuario SIGI: columnas COD_DEP, NOMB_DEP, COD_CIRC_DEP, DESC_CIRC_DEP, TITU_SUBROG, NOMB_USUARIO.
+ * Suele devolver varias filas; priorizamos la dependencia donde el usuario es TITULAR.
+ */
+function pickDependenciaUbicacionFromSigiRecordset(recordset) {
+  if (!Array.isArray(recordset) || recordset.length === 0) return "";
+  const titularRow = recordset.find((r) => {
+    const rol = sigiRowField(r, "TITU_SUBROG", "TITU_SUBROGA");
+    return String(rol).toUpperCase().trim() === "TITULAR";
+  });
+  const row = titularRow || recordset[0];
+
+  const nombDep = sigiRowField(row, "NOMB_DEP");
+  const codDep = sigiRowField(row, "COD_DEP");
+  const descCirc = sigiRowField(row, "DESC_CIRC_DEP", "DESC_CIRCDEP");
+  const titu = sigiRowField(row, "TITU_SUBROG", "TITU_SUBROGA");
+
+  const main = nombDep || codDep;
+  if (!main) return "";
+
+  const parts = [main];
+  if (descCirc) parts.push(descCirc);
+  let out = parts.join(" · ");
+
+  if (recordset.length > 1 && titu) {
+    out += ` — ${titu}`;
+  } else if (recordset.length === 1 && titu && String(titu).toUpperCase() !== "TITULAR") {
+    out += ` (${titu})`;
+  }
+
+  return out;
+}
+
+function expedienteFromSigiRow(row, fallbackQueried) {
+  if (!row || typeof row !== "object") return String(fallbackQueried || "").trim();
+  const preferredKeys = [
+    "nroexpediente",
+    "nro_expediente",
+    "expediente",
+    "numeroexpediente",
+    "numero_expediente",
+    "expedientesigi",
+    "expte",
+    "exp",
+  ];
+  const lower = {};
+  for (const k of Object.keys(row)) {
+    lower[String(k).toLowerCase()] = row[k];
+  }
+  for (const pk of preferredKeys) {
+    const v = lower[pk];
+    if (v != null && String(v).trim() !== "") {
+      const s = String(v).trim();
+      if (EXPEDIENTE_REGEX.test(s)) return s;
+    }
+  }
+  for (const k of Object.keys(row)) {
+    const s = String(row[k] ?? "").trim();
+    if (EXPEDIENTE_REGEX.test(s)) return s;
+  }
+  return String(fallbackQueried || "").trim();
 }
 
 function generateCaptchaCode(length = 6) {
@@ -94,6 +180,13 @@ function App() {
   const [categorias, setCategorias] = useState({});
   const [tipoRows, setTipoRows] = useState([]);
   const [tipoSearch, setTipoSearch] = useState("");
+  const [sigiExpediente, setSigiExpediente] = useState({
+    loading: false,
+    error: "",
+    data: null,
+    queried: "",
+  });
+  const [sigiExpedienteSelectedIdx, setSigiExpedienteSelectedIdx] = useState(null);
   const [nextNumber, setNextNumber] = useState(null);
   const [formByType, setFormByType] = useState(
     Object.fromEntries(
@@ -113,6 +206,8 @@ function App() {
   const [stats, setStats] = useState({ totals: [], monthly: [], ranking: [], auditLog: [] });
   const displayName = user?.nombreCompleto || user?.nombre || "-";
   const displayUser = user?.usuario || user?.nombre || "-";
+  const [sigiDependenciaUbicacion, setSigiDependenciaUbicacion] = useState("");
+  const [sigiDependenciaLoaded, setSigiDependenciaLoaded] = useState(false);
   const [paginationByTab, setPaginationByTab] = useState(() =>
     Object.fromEntries(
       TAB_KEYS.map((tab) => [tab, { page: 1, pageSize: 20 }])
@@ -122,6 +217,8 @@ function App() {
   function localLogout() {
     setToken("");
     setUser(null);
+    setSigiDependenciaUbicacion("");
+    setSigiDependenciaLoaded(false);
     setAuthToken("");
     localStorage.removeItem("numerador_token");
     localStorage.removeItem("numerador_user");
@@ -137,6 +234,46 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!token || !user) {
+      setSigiDependenciaUbicacion("");
+      setSigiDependenciaLoaded(false);
+      return;
+    }
+    const dniRaw = user.dni;
+    const dniStr =
+      typeof dniRaw === "number" && Number.isInteger(dniRaw)
+        ? String(dniRaw)
+        : String(dniRaw ?? "").replace(/\D/g, "");
+    if (!/^\d{7,8}$/.test(dniStr)) {
+      setSigiDependenciaUbicacion("");
+      setSigiDependenciaLoaded(true);
+      return;
+    }
+    setSigiDependenciaLoaded(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.post(SIGI_USUARIO_API_PATH, {
+          dniUsuarioSigi: Number(dniStr),
+        });
+        const ubicacion = pickDependenciaUbicacionFromSigiRecordset(data.recordset);
+        if (!cancelled) {
+          setSigiDependenciaUbicacion(ubicacion);
+          setSigiDependenciaLoaded(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSigiDependenciaUbicacion("");
+          setSigiDependenciaLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user?.dni]);
+
+  useEffect(() => {
     if (!token) return;
     loadCategorias();
   }, [token]);
@@ -147,6 +284,12 @@ function App() {
     loadTipoRows(activeTab, tipoSearch);
     loadNextNumber(activeTab);
   }, [activeTab, token]);
+
+  useEffect(() => {
+    if (!TYPES.includes(activeTab)) return;
+    setSigiExpediente({ loading: false, error: "", data: null, queried: "" });
+    setSigiExpedienteSelectedIdx(null);
+  }, [activeTab]);
 
   const categoryOptions = useMemo(() => {
     const catByType = categorias[activeTab];
@@ -188,6 +331,52 @@ function App() {
       ...prev,
       [tipo]: { ...(prev[tipo] || { page: 1, pageSize: 20 }), page: 1 },
     }));
+  }
+
+  async function consultarSigiExpediente() {
+    const nro = String(tipoSearch || "").trim();
+    if (!SIGI_EXPEDIENTE_REGEX.test(nro)) {
+      setSigiExpediente({
+        loading: false,
+        error:
+          "Expediente SIGI: formato NNNNNNN/AAAA-CC (ej. 3500384/2026-91). Usá hasta 8 dígitos antes de / y 1–4 después del guion.",
+        data: null,
+        queried: "",
+      });
+      return;
+    }
+    setSigiExpediente({ loading: true, error: "", data: null, queried: nro });
+    setSigiExpedienteSelectedIdx(null);
+    try {
+      const { data } = await api.post("/sigi/expediente", { NroExpediente: nro });
+      setSigiExpediente({ loading: false, error: "", data, queried: nro });
+    } catch (e) {
+      setSigiExpediente({
+        loading: false,
+        error: e.response?.data?.message || "No se pudo consultar SIGI",
+        data: null,
+        queried: nro,
+      });
+    }
+  }
+
+  function usarExpedienteSigiEnFormulario(row, rowIdx) {
+    const ex = expedienteFromSigiRow(row, sigiExpediente.queried);
+    if (!ex || !EXPEDIENTE_REGEX.test(ex)) {
+      window.alert(
+        "No se pudo obtener un expediente con formato válido desde esta fila. " +
+          "Comprobá las columnas devueltas por SIGI o escribí el número manualmente."
+      );
+      return;
+    }
+    setFormByType((p) => ({
+      ...p,
+      [activeTab]: {
+        ...(p[activeTab] || { expediente: "", detalleSelect: "", detalleOtro: "" }),
+        expediente: ex,
+      },
+    }));
+    setSigiExpedienteSelectedIdx(rowIdx);
   }
 
   async function loadGlobalRows() {
@@ -281,7 +470,9 @@ function App() {
     const detalle =
       form.detalleSelect === "__OTROS__" ? form.detalleOtro.trim() : form.detalleSelect.trim();
     if (!isValidExpediente(form.expediente)) {
-      return alert("Expediente inválido. Formato obligatorio: hasta 5 dígitos + '/' + 4 dígitos + '-' + 1 dígito (ej: 12345/2026-1)");
+      return alert(
+        "Expediente inválido. Formato: N°/aaaa-circ (hasta 8 dígitos antes de /, 1–4 en circunscripción; ej. 12345/2026-1 o 3500384/2026-91)."
+      );
     }
     if (!detalle) return alert("Debe seleccionar o ingresar detalle");
 
@@ -303,7 +494,9 @@ function App() {
     const expediente = prompt("Nuevo expediente (formato 12345/2026-1):", row.expediente);
     if (!expediente) return;
     if (!isValidExpediente(expediente)) {
-      alert("Expediente inválido. Formato obligatorio: hasta 5 dígitos + '/' + 4 dígitos + '-' + 1 dígito.");
+      alert(
+        "Expediente inválido. Formato: N°/aaaa-circ (ej. 3500384/2026-91)."
+      );
       return;
     }
     const detalle = prompt("Nuevo detalle:", row.detalle || "");
@@ -470,7 +663,25 @@ function App() {
             className="topbar-logo"
           />
           <div className="topbar-user">
-            <strong>{displayName}</strong> ({displayUser}) - ({user?.rol}) - {user?.dependencia || "GENERAL"}
+            <strong>{displayName}</strong> ({displayUser}) — rol {user?.rol}
+            <span className="topbar-meta-sep"> · </span>
+            <span
+              className="topbar-dependencia"
+              title="SIGI vía DNI (por defecto POST /api/sigi/sp1). Configurá VITE_SIGI_USUARIO_ENDPOINT si usás otra ruta."
+            >
+              Dep. actual (SIGI):{" "}
+              {!user?.dni ? (
+                <span className="topbar-muted">sin DNI en el perfil</span>
+              ) : !sigiDependenciaLoaded ? (
+                <span className="topbar-muted">consultando…</span>
+              ) : sigiDependenciaUbicacion ? (
+                <em>{sigiDependenciaUbicacion}</em>
+              ) : (
+                <span className="topbar-muted">sin datos</span>
+              )}
+            </span>
+            <span className="topbar-meta-sep"> · </span>
+            Dep. Numerador: {user?.dependencia || "GENERAL"}
           </div>
         </div>
         <div className="topbar-actions">
@@ -511,10 +722,10 @@ function App() {
                     },
                   }))
                 }
-                maxLength={12}
-                inputMode="numeric"
-                pattern="^\d{1,5}/\d{4}-\d$"
-                title="Formato: hasta 5 dígitos + '/' + 4 dígitos + '-' + 1 dígito (ej: 12345/2026-1)"
+                maxLength={50}
+                inputMode="text"
+                pattern="^\d{1,8}/\d{4}-\d{1,4}$"
+                title="Formato: N°/aaaa-circ (ej. 12345/2026-1 o 3500384/2026-91)"
               />
               <select
                 value={formByType[activeTab].detalleSelect}
@@ -546,14 +757,104 @@ function App() {
               )}
               <button type="submit">Guardar</button>
             </form>
-            <div className="form-row">
+            <div className="form-row wrap sigi-search-row">
               <input
-                placeholder="Filtrar"
+                className="sigi-search-input"
+                placeholder="Filtrar registros o expediente para SIGI (ej. 3500384/2026-91)"
                 value={tipoSearch}
                 onChange={(e) => setTipoSearch(e.target.value)}
               />
-              <button onClick={() => loadTipoRows(activeTab, tipoSearch)}>Buscar</button>
+              <button type="button" onClick={() => loadTipoRows(activeTab, tipoSearch)}>
+                Buscar
+              </button>
+              <button type="button" className="secondary" onClick={consultarSigiExpediente}>
+                Consultar SIGI
+              </button>
             </div>
+            {(sigiExpediente.queried || sigiExpediente.error) && (
+              <div className="sigi-panel">
+                <div className="sigi-panel-head">
+                  <strong>SIGI — expediente</strong>
+                  {sigiExpediente.queried ? (
+                    <span className="sigi-panel-nro">{sigiExpediente.queried}</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="sigi-panel-close"
+                    onClick={() => {
+                      setSigiExpediente({ loading: false, error: "", data: null, queried: "" });
+                      setSigiExpedienteSelectedIdx(null);
+                    }}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                {sigiExpediente.loading && <p className="sigi-panel-muted">Consultando…</p>}
+                {!sigiExpediente.loading && sigiExpediente.error && (
+                  <p className="sigi-panel-error">{sigiExpediente.error}</p>
+                )}
+                {!sigiExpediente.loading && sigiExpediente.data && (
+                  <>
+                    {Array.isArray(sigiExpediente.data.recordset) &&
+                    sigiExpediente.data.recordset.length > 0 ? (
+                      <div className="sigi-table-wrap">
+                        <table className="sigi-table">
+                          <thead>
+                            <tr>
+                              <th className="sigi-col-action">Formulario</th>
+                              {Object.keys(sigiExpediente.data.recordset[0]).map((k) => (
+                                <th key={k}>{k}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sigiExpediente.data.recordset.map((row, idx) => {
+                              const keys = Object.keys(sigiExpediente.data.recordset[0]);
+                              return (
+                                <tr
+                                  key={idx}
+                                  className={
+                                    idx === sigiExpedienteSelectedIdx ? "sigi-row-selected" : ""
+                                  }
+                                >
+                                  <td className="sigi-col-action">
+                                    <button
+                                      type="button"
+                                      className="sigi-row-use"
+                                      onClick={() => usarExpedienteSigiEnFormulario(row, idx)}
+                                    >
+                                      Usar expediente
+                                    </button>
+                                  </td>
+                                  {keys.map((k) => (
+                                    <td key={k}>
+                                      {row[k] === null || row[k] === undefined
+                                        ? ""
+                                        : String(row[k])}
+                                    </td>
+                                  ))}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p
+                        className={
+                          sigiExpediente.data.message
+                            ? "sigi-panel-error"
+                            : "sigi-panel-muted"
+                        }
+                      >
+                        {sigiExpediente.data.message ||
+                          "Sin filas (recordset vacío)."}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </section>
         )}
 

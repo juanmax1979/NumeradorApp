@@ -37,6 +37,12 @@ async function bootstrap() {
       INSERT INTO dbo.dependencias (nombre, activa) VALUES ('Juzgado Correccional - Charata', 1);
   `);
 
+  await runQuery(`
+    IF OBJECT_ID('dbo.dependencias', 'U') IS NOT NULL
+      AND COL_LENGTH('dbo.dependencias', 'cod_dep_sigi') IS NULL
+      ALTER TABLE dbo.dependencias ADD cod_dep_sigi NVARCHAR(50) NULL;
+  `);
+
   // Compatibilidad con instalaciones previas (texto)
   await runQuery(`
     IF OBJECT_ID('dbo.usuarios', 'U') IS NOT NULL AND COL_LENGTH('dbo.usuarios', 'dependencia') IS NULL

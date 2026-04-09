@@ -78,10 +78,27 @@ body {
 }
 
 .topbar-user {
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
+  max-width: min(920px, 55vw);
   text-overflow: ellipsis;
   opacity: 0.95;
+  line-height: 1.35;
+  font-size: 14px;
+}
+
+.topbar-meta-sep {
+  opacity: 0.75;
+}
+
+.topbar-dependencia em {
+  font-style: normal;
+  font-weight: 600;
+}
+
+.topbar-muted {
+  opacity: 0.78;
+  font-weight: 500;
 }
 
 /* Nivel 2 — navegación (intermedio, distinto del topbar y del contenido) */
@@ -486,4 +503,116 @@ td {
 .error {
   color: #943d3d;
   font-weight: 600;
+}
+
+button.secondary {
+  background: linear-gradient(180deg, var(--azul-400) 0%, var(--azul-500) 100%);
+  border-color: rgba(30, 45, 58, 0.12);
+  font-weight: 600;
+}
+
+button.secondary:hover {
+  background: linear-gradient(180deg, var(--azul-500) 0%, var(--azul-600) 100%);
+}
+
+.sigi-search-row .sigi-search-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.sigi-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, #f6fafd 0%, var(--blanco-100) 100%);
+  box-shadow: var(--shadow-soft);
+}
+
+.sigi-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.sigi-panel-nro {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--azul-800);
+}
+
+.sigi-panel-close {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  color: var(--azul-950);
+}
+
+.sigi-panel-close:hover {
+  background: linear-gradient(180deg, var(--azul-400) 0%, var(--azul-500) 100%);
+}
+
+.sigi-panel-muted {
+  margin: 0;
+  color: var(--azul-700);
+  font-size: 14px;
+}
+
+.sigi-panel-error {
+  margin: 0;
+  color: #943d3d;
+  font-weight: 600;
+}
+
+.sigi-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+table.sigi-table {
+  margin: 0;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+table.sigi-table th {
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--azul-200);
+  z-index: 1;
+}
+
+th.sigi-col-action,
+td.sigi-col-action {
+  position: sticky;
+  left: 0;
+  background: var(--azul-100);
+  z-index: 2;
+  box-shadow: 2px 0 6px rgba(30, 61, 82, 0.08);
+  vertical-align: middle;
+}
+
+thead th.sigi-col-action {
+  z-index: 3;
+  background: var(--azul-200);
+}
+
+button.sigi-row-use {
+  font-size: 12px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+tr.sigi-row-selected td {
+  background: rgba(136, 186, 220, 0.35);
+}
+
+tr.sigi-row-selected td.sigi-col-action {
+  background: rgba(136, 186, 220, 0.5);
 }

@@ -16,7 +16,9 @@ router.get("/categorias", authRequired, (req, res) => {
 router.get("/dependencias", authRequired, async (req, res, next) => {
   try {
     const rs = await runQuery(
-      "SELECT id, nombre, activa FROM dbo.dependencias ORDER BY nombre"
+      `SELECT id, nombre, activa,
+              cod_dep_sigi AS codDepSigi
+       FROM dbo.dependencias ORDER BY nombre`
     );
     res.json(rs.recordset);
   } catch (error) {

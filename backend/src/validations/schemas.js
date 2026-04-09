@@ -1,6 +1,7 @@
 const { z } = require("zod");
 
-const expedienteRegex = /^\d{1,5}\/\d{4}-\d$/;
+/** Alineado con consulta SIGI: hasta 8 dígitos + / + año + - + circ. (1–4 dígitos) */
+const expedienteRegex = /^\d{1,8}\/\d{4}-\d{1,4}$/;
 
 const tiposEnum = z.enum([
   "OFICIO",
@@ -28,7 +29,7 @@ const createRecordSchema = z.object({
     .trim()
     .regex(
       expedienteRegex,
-      "Expediente inválido. Debe tener formato NNNNN/AAAA-C (hasta 5 dígitos + '/' + 4 dígitos + '-' + 1 dígito)"
+      "Expediente inválido. Formato NNNNNNNN/AAAA-CC (hasta 8 dígitos, año 4, circ. 1–4 dígitos)"
     ),
   detalle: z.string().trim().max(500).optional().default(""),
 });
@@ -39,7 +40,7 @@ const updateRecordSchema = z.object({
     .trim()
     .regex(
       expedienteRegex,
-      "Expediente inválido. Debe tener formato NNNNN/AAAA-C (hasta 5 dígitos + '/' + 4 dígitos + '-' + 1 dígito)"
+      "Expediente inválido. Formato NNNNNNNN/AAAA-CC (hasta 8 dígitos, año 4, circ. 1–4 dígitos)"
     ),
   detalle: z.string().trim().max(500),
 });
