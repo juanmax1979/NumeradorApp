@@ -613,6 +613,17 @@ function App() {
     await loadNextNumber(activeTab);
   }
 
+  function clearCurrentTipoForm() {
+    if (!TYPES.includes(activeTab)) return;
+    setFormByType((prev) => ({
+      ...prev,
+      [activeTab]: { expediente: "", detalleSelect: "", detalleOtro: "" },
+    }));
+    setTipoSearch("");
+    setSigiExpediente({ loading: false, error: "", data: null, queried: "" });
+    setSigiExpedienteSelectedIdx(null);
+  }
+
   async function actionEdit(row) {
     const expediente = prompt("Nuevo expediente (formato 12345/2026-1):", row.expediente);
     if (!expediente) return;
@@ -939,6 +950,30 @@ function App() {
                   }
                 />
               )}
+              <button
+                type="button"
+                className="secondary icon-form-clear"
+                onClick={clearCurrentTipoForm}
+                title="Limpiar expediente, detalle y filtro de búsqueda"
+                aria-label="Limpiar expediente, detalle y filtro de búsqueda"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+                  <line x1="18" y1="9" x2="12" y2="15" />
+                  <line x1="12" y1="9" x2="18" y2="15" />
+                </svg>
+              </button>
               <button type="submit">Guardar</button>
             </form>
             <div className="form-row wrap sigi-search-row">

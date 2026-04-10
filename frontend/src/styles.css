@@ -242,6 +242,20 @@ body {
   flex-wrap: wrap;
 }
 
+/* Limpiar formulario: solo icono, alineado con inputs */
+button.icon-form-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 9px 10px;
+  flex-shrink: 0;
+}
+
+button.icon-form-clear svg {
+  display: block;
+}
+
 /* Controles de formulario: tono neutro, sin competir con CTAs */
 input,
 select,
