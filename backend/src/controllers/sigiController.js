@@ -128,6 +128,43 @@ function collectCodDepsFromUsuarioSigiResult(result) {
   return set;
 }
 
+/**
+ * IDs en dbo.dependencias cuyo cod_dep_sigi coincide con algún COD_DEP devuelto por el SP usuario SIGI.
+ */
+async function getAllowedDependenciaIdsForDni(dniInt) {
+  const result = await executeSigiProcedure(PROC_USUARIO, sqlParamsUsuarioSigi(dniInt));
+  const allowed = collectCodDepsFromUsuarioSigiResult(result);
+  if (allowed.size === 0) return [];
+
+  const rs = await runQuery(
+    `SELECT id, cod_dep_sigi AS cod
+     FROM dbo.dependencias
+     WHERE activa = 1 AND cod_dep_sigi IS NOT NULL AND LTRIM(RTRIM(cod_dep_sigi)) <> ''`
+  );
+
+  const ids = [];
+  for (const row of rs.recordset) {
+    const raw = row.cod;
+    if (raw == null || String(raw).trim() === "") continue;
+    for (const part of String(raw).split(/[,;]+/)) {
+      const p = part.trim();
+      if (!p) continue;
+      let hit = false;
+      for (const v of expandCodDepVariants(p)) {
+        if (allowed.has(v)) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
+        ids.push(Number(row.id));
+        break;
+      }
+    }
+  }
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
 /** Códigos SIGI (COD_DEP) asociados a la dependencia del Numerador en dbo.dependencias. */
 async function mergeCodDepsFromNumeradorDependencia(allowed, dependenciaId) {
   const id = Number(dependenciaId);
@@ -317,5 +354,7 @@ async function runSigiExpediente(req, res, next) {
 module.exports = {
   runSigiUsuarioPorDni,
   runSigiExpediente,
+  resolveDniIntForRequest,
+  getAllowedDependenciaIdsForDni,
 };
 

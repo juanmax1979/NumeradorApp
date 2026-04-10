@@ -22,6 +22,10 @@ const changePasswordSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
+const switchDependenciaSchema = z.object({
+  dependenciaId: z.coerce.number().int().positive(),
+});
+
 const createRecordSchema = z.object({
   tipo: tiposEnum,
   expediente: z
@@ -81,6 +85,7 @@ module.exports = {
   tiposEnum,
   loginSchema,
   changePasswordSchema,
+  switchDependenciaSchema,
   createRecordSchema,
   updateRecordSchema,
   listRecordsQuerySchema,

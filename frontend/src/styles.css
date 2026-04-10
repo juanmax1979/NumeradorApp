@@ -101,6 +101,82 @@ body {
   font-weight: 500;
 }
 
+.topbar-actuar-dep {
+  font-weight: 500;
+  display: inline;
+}
+
+.topbar-dep-select {
+  margin-left: 6px;
+  max-width: min(320px, 42vw);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--blanco-100);
+  font-size: 13px;
+}
+
+.topbar-dep-select option {
+  color: var(--azul-ink);
+  background: var(--blanco-100);
+}
+
+.session-gate-card {
+  max-width: 520px;
+  margin: 24px auto;
+  text-align: center;
+  color: var(--azul-800);
+}
+
+.dep-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(30, 61, 82, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.dep-modal {
+  width: min(440px, 100%);
+  padding: 24px 28px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-soft), 0 12px 40px rgba(30, 61, 82, 0.2);
+  border: 1px solid var(--border-subtle);
+}
+
+.dep-modal h2 {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+  color: var(--azul-950);
+}
+
+.dep-modal-hint {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--azul-800);
+}
+
+.dep-modal-select {
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+}
+
+.dep-modal-submit {
+  width: 100%;
+  padding: 10px 16px;
+}
+
 /* Nivel 2 — navegación (intermedio, distinto del topbar y del contenido) */
 .tabs {
   display: flex;

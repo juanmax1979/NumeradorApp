@@ -12,6 +12,10 @@ const {
   isActiveDirectoryAuthEnabled,
   authenticateAgainstActiveDirectory,
 } = require("../services/adAuthService");
+const {
+  resolveDniIntForRequest,
+  getAllowedDependenciaIdsForDni,
+} = require("./sigiController");
 
 function refreshCookieOptions() {
   const secure = String(process.env.COOKIE_SECURE || "false") === "true";
@@ -347,6 +351,93 @@ async function logout(req, res, next) {
   }
 }
 
+async function switchDependencia(req, res, next) {
+  try {
+    const targetId = Number(req.body?.dependenciaId);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ message: "dependenciaId inválido" });
+    }
+
+    const dniInt = await resolveDniIntForRequest(req);
+    let allowedIds = [];
+    if (dniInt != null) {
+      try {
+        allowedIds = await getAllowedDependenciaIdsForDni(dniInt);
+      } catch {
+        return res.status(503).json({
+          message: "No se pudo consultar SIGI para validar dependencias. Intente más tarde.",
+        });
+      }
+    }
+
+    const currentId = Number(req.user?.dependenciaId);
+    if (allowedIds.length === 0) {
+      if (targetId !== currentId) {
+        return res.status(403).json({
+          message:
+            "Sin asignación SIGI reconocible (COD_DEP / cod_dep_sigi). Solo puede operar con su dependencia actual del Numerador.",
+        });
+      }
+    } else if (!allowedIds.includes(targetId)) {
+      return res.status(403).json({
+        message: "No puede operar en la dependencia elegida según su alta en SIGI.",
+      });
+    }
+
+    const depRs = await runQuery(
+      `SELECT id, nombre FROM dbo.dependencias WHERE id = @id AND activa = 1`,
+      { id: targetId }
+    );
+    const dep = depRs.recordset[0];
+    if (!dep) {
+      return res.status(404).json({ message: "Dependencia no encontrada o inactiva" });
+    }
+
+    await runQuery(
+      `UPDATE dbo.usuarios
+       SET dependencia_id = @depId, dependencia = @depNombre
+       WHERE nombre = @nombre OR usuario = @nombre`,
+      { depId: targetId, depNombre: dep.nombre, nombre: req.user.nombre }
+    );
+
+    const userRs = await runQuery(
+      `SELECT
+         u.nombre,
+         u.usuario,
+         u.nombre_completo,
+         u.dni,
+         u.rol,
+         u.dependencia,
+         u.dependencia_id,
+         d.nombre AS dependencia_nombre
+       FROM dbo.usuarios u
+       LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+       WHERE u.nombre = @nombre OR u.usuario = @nombre`,
+      { nombre: req.user.nombre }
+    );
+    const user = userRs.recordset[0];
+    if (!user) {
+      return res.status(500).json({ message: "Usuario no encontrado tras actualizar dependencia" });
+    }
+
+    const token = signAccessToken(user);
+    return res.json({
+      token,
+      user: {
+        nombre: user.nombre,
+        usuario: user.usuario || user.nombre,
+        nombreCompleto: user.nombre_completo || user.nombre,
+        dni: user.dni || null,
+        rol: user.rol,
+        dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
+        dependenciaId: Number(user.dependencia_id),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function refresh(req, res, next) {
   try {
     const refreshToken = req.cookies?.refreshToken;
@@ -405,4 +496,5 @@ module.exports = {
   changeOwnPassword,
   logout,
   refresh,
+  switchDependencia,
 };
