@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Numerador embebido — ejemplo de integración</title>
+    <link rel="stylesheet" href="ejemplo-integracion.css" />
+    <link rel="stylesheet" href="numerador-embed.css" />
+    <!--
+      Integración en otra app:
+      1. Serví numerador-embed.js y numerador-embed.css (misma carpeta o CDN).
+      2. Obtené un JWT válido del Numerador (POST /api/auth/login) para el usuario
+         que debe numerar; el token lleva dependenciaId y dependencia reales.
+      3. Si la app corre en otro dominio que localhost:5173, configurá CORS en el
+         backend (FRONTEND_URL / lista de orígenes) o usá un proxy same-origin.
+      4. Llamá NumeradorEmbed.open({ ... }) desde el click de un botón.
+    -->
+  </head>
+  <body>
+    <div class="integracion-demo app">
+      <header class="topbar">
+        <div class="topbar-brand">
+          <div class="topbar-logo" aria-hidden="true">N</div>
+          <div class="topbar-titles">
+            <h1>Numerador de Recaudos Judiciales</h1>
+            <p>Poder Judicial del Chaco · página de prueba de integración embebida</p>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Sección">
+        <button type="button" class="active">INTEGRACIÓN</button>
+      </nav>
+
+      <main class="content">
+        <section class="card">
+          <h2>Probar ventana emergente del numerador</h2>
+          <p class="card-lead">
+            Completá la URL del API y el token JWT, luego abrí el formulario en un popup
+            compacto (misma lógica que usarías desde otra aplicación).
+          </p>
+
+          <div class="field">
+            <label for="api">URL base del API</label>
+            <input
+              id="api"
+              type="url"
+              autocomplete="off"
+              value="http://localhost:4000/api"
+              placeholder="http://localhost:4000/api"
+            />
+          </div>
+
+          <div class="field">
+            <label for="tok">Bearer token (JWT)</label>
+            <input
+              id="tok"
+              type="password"
+              autocomplete="off"
+              placeholder="Pegá el token tras iniciar sesión en el Numerador"
+            />
+          </div>
+
+          <div class="card-actions">
+            <button type="button" id="btn">Abrir numerador</button>
+          </div>
+
+          <div class="hint">
+            <strong>Nota:</strong> el estilo de esta página imita la aplicación web del
+            Numerador; el popup usa <code>numerador-embed.css</code>. Si servís solo esta
+            carpeta, usá un origen permitido por CORS del backend (por defecto
+            <code>http://localhost:5173</code>).
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="numerador-embed.js"></script>
+    <script>
+      document.getElementById("btn").onclick = function () {
+        var api = document.getElementById("api").value.trim();
+        var token = document.getElementById("tok").value.trim();
+        if (!token) {
+          window.alert("Pegá un JWT de /api/auth/login o copiá numerador_token desde el navegador.");
+          return;
+        }
+        NumeradorEmbed.open({
+          apiBaseUrl: api,
+          accessToken: token,
+          usuario: "Ejemplo, Usuario",
+          dependencia: "Dependencia de prueba",
+          expediente: "1/2026-1",
+          onSuccess: function (res) {
+            console.log("Registro creado:", res);
+          },
+        });
+      };
+    </script>
+  </body>
+</html>
