@@ -18,7 +18,9 @@ router.get("/dependencias", authRequired, async (req, res, next) => {
     const rs = await runQuery(
       `SELECT id, nombre, activa,
               cod_dep_sigi AS codDepSigi
-       FROM dbo.dependencias ORDER BY nombre`
+       FROM dbo.dependencias
+       WHERE activa = 1
+       ORDER BY nombre`
     );
     res.json(rs.recordset);
   } catch (error) {

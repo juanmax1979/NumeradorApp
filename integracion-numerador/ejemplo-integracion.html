@@ -36,8 +36,9 @@
         <section class="card">
           <h2>Probar ventana emergente del numerador</h2>
           <p class="card-lead">
-            Completá la URL del API y el token JWT, luego abrí el formulario en un popup
-            compacto (misma lógica que usarías desde otra aplicación).
+            Completá la URL del API, el token JWT y la dependencia, luego abrí el
+            formulario en un popup compacto (misma lógica que usarías desde otra
+            aplicación).
           </p>
 
           <div class="field">
@@ -61,6 +62,13 @@
             />
           </div>
 
+          <div class="field">
+            <label for="dep">Dependencia</label>
+            <select id="dep">
+              <option value="">Cargá token para listar dependencias</option>
+            </select>
+          </div>
+
           <div class="card-actions">
             <button type="button" id="btn">Abrir numerador</button>
           </div>
@@ -77,9 +85,77 @@
 
     <script src="numerador-embed.js"></script>
     <script>
-      document.getElementById("btn").onclick = function () {
-        var api = document.getElementById("api").value.trim();
-        var token = document.getElementById("tok").value.trim();
+      var apiEl = document.getElementById("api");
+      var tokenEl = document.getElementById("tok");
+      var depEl = document.getElementById("dep");
+      var btnEl = document.getElementById("btn");
+
+      function apiBaseUrl() {
+        return apiEl.value.trim().replace(/\/+$/, "");
+      }
+
+      function setDependenciaPlaceholder(text) {
+        depEl.innerHTML = "";
+        var option = document.createElement("option");
+        option.value = "";
+        option.textContent = text;
+        depEl.appendChild(option);
+      }
+
+      function cargarDependencias() {
+        var api = apiBaseUrl();
+        var token = tokenEl.value.trim();
+        if (!token) {
+          setDependenciaPlaceholder("Pegá token para listar dependencias");
+          return Promise.resolve();
+        }
+
+        setDependenciaPlaceholder("Cargando dependencias...");
+        return fetch(api + "/meta/dependencias", {
+          headers: {
+            Accept: "application/json",
+            Authorization: "Bearer " + token,
+          },
+        })
+          .then(function (res) {
+            return res
+              .json()
+              .catch(function () {
+                return [];
+              })
+              .then(function (data) {
+                if (!res.ok) {
+                  var msg = (data && data.message) || "No se pudieron cargar dependencias";
+                  throw new Error(msg);
+                }
+                return Array.isArray(data) ? data : [];
+              });
+          })
+          .then(function (deps) {
+            depEl.innerHTML = "";
+            if (!deps.length) {
+              setDependenciaPlaceholder("No hay dependencias activas");
+              return;
+            }
+            deps.forEach(function (dep) {
+              var option = document.createElement("option");
+              option.value = String(dep.nombre || "").trim();
+              option.textContent = dep.nombre + " (ID " + dep.id + ")";
+              depEl.appendChild(option);
+            });
+          })
+          .catch(function (err) {
+            setDependenciaPlaceholder(err.message || "Error cargando dependencias");
+          });
+      }
+
+      tokenEl.addEventListener("change", cargarDependencias);
+      apiEl.addEventListener("change", cargarDependencias);
+
+      btnEl.onclick = function () {
+        var api = apiBaseUrl();
+        var token = tokenEl.value.trim();
+        var dependencia = depEl.value.trim();
         if (!token) {
           window.alert("Pegá un JWT de /api/auth/login o copiá numerador_token desde el navegador.");
           return;
@@ -88,7 +164,7 @@
           apiBaseUrl: api,
           accessToken: token,
           usuario: "Ejemplo, Usuario",
-          dependencia: "Dependencia de prueba",
+          dependencia: dependencia || "Dependencia de prueba",
           expediente: "1/2026-1",
           onSuccess: function (res) {
             console.log("Registro creado:", res);
