@@ -102,6 +102,15 @@
         depEl.appendChild(option);
       }
 
+      var depsReloadTimer = null;
+      function scheduleCargarDependencias() {
+        if (depsReloadTimer) clearTimeout(depsReloadTimer);
+        depsReloadTimer = setTimeout(function () {
+          depsReloadTimer = null;
+          cargarDependencias();
+        }, 350);
+      }
+
       function cargarDependencias() {
         var api = apiBaseUrl();
         var token = tokenEl.value.trim();
@@ -150,9 +159,14 @@
       }
 
       tokenEl.addEventListener("change", cargarDependencias);
+      tokenEl.addEventListener("input", scheduleCargarDependencias);
+      tokenEl.addEventListener("paste", function () {
+        setTimeout(cargarDependencias, 0);
+      });
       apiEl.addEventListener("change", cargarDependencias);
+      apiEl.addEventListener("input", scheduleCargarDependencias);
 
-      btnEl.onclick = function () {
+      function abrirNumerador() {
         var api = apiBaseUrl();
         var token = tokenEl.value.trim();
         var dependencia = depEl.value.trim();
@@ -170,6 +184,23 @@
             console.log("Registro creado:", res);
           },
         });
+      }
+
+      btnEl.onclick = function () {
+        var token = tokenEl.value.trim();
+        if (!token) {
+          window.alert("Pegá un JWT de /api/auth/login o copiá numerador_token desde el navegador.");
+          return;
+        }
+        var soloPlaceholder =
+          depEl.options.length === 1 && String(depEl.options[0].value || "").trim() === "";
+        if (soloPlaceholder) {
+          cargarDependencias().then(function () {
+            abrirNumerador();
+          });
+          return;
+        }
+        abrirNumerador();
       };
     </script>
   </body>
