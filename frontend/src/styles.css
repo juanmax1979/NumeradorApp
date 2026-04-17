@@ -725,6 +725,21 @@ button.secondary:hover {
   font-weight: 600;
 }
 
+.sigi-panel-hint-dep {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--azul-800);
+  background: rgba(111, 150, 176, 0.12);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.sigi-panel-hint-dep code {
+  font-size: 12px;
+}
+
 .sigi-table-wrap {
   overflow-x: auto;
   border-radius: var(--radius-sm);
@@ -765,6 +780,33 @@ button.sigi-row-use {
   padding: 6px 10px;
   white-space: nowrap;
   font-weight: 600;
+}
+
+button.sigi-row-use:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  color: var(--azul-800);
+  border-color: var(--azul-400);
+  box-shadow: none;
+  transform: none;
+  pointer-events: none;
+}
+
+/* Fila de otra dependencia: se ve deshabilitado pero acepta clic para mostrar el aviso */
+button.sigi-row-use.sigi-row-use-blocked {
+  opacity: 0.52;
+  cursor: not-allowed;
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  color: var(--azul-800);
+  border-color: var(--azul-400);
+  box-shadow: none;
+  transform: none;
+}
+
+button.sigi-row-use.sigi-row-use-blocked:hover {
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  box-shadow: none;
 }
 
 tr.sigi-row-selected td {

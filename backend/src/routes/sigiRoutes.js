@@ -3,12 +3,14 @@ const { authRequired } = require("../middleware/auth");
 const {
   runSigiUsuarioPorDni,
   runSigiExpediente,
+  getSigiAllowedCodDepTokens,
 } = require("../controllers/sigiController");
 
 const router = express.Router();
 
 router.use(authRequired);
 
+router.get("/allowed-cod-dep-tokens", getSigiAllowedCodDepTokens);
 router.post("/usuario", runSigiUsuarioPorDni);
 router.post("/expediente", runSigiExpediente);
 

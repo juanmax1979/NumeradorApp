@@ -19,6 +19,10 @@ const MOTIVOS_ANULACION = [
   "Otro",
 ];
 
+const MSG_SIGI_FILA_OTRA_DEPENDENCIA =
+  "Esta fila no corresponde a la dependencia seleccionada en el Numerador. " +
+  "Elegí otra dependencia en la barra superior o comprobá en SIGI el código o el texto de dependencia del trámite.";
+
 function fmtDate(value) {
   if (!value) return "-";
   return dayjs(value).format("DD/MM/YYYY HH:mm");
@@ -112,8 +116,8 @@ function sigiRowField(row, ...candidateKeys) {
   return "";
 }
 
-/** Alineado con modo "usuario" en backend (sigiController.getCodDepFromRow). */
-const SIGI_USUARIO_COD_KEYS = [
+/** Igual que backend sigiController.COD_DEP_CANDIDATES / getCodDepFromRow. */
+const SIGI_COD_DEP_CANDIDATES = [
   "COD_DEP",
   "CODDEP",
   "COD_DEP_RAD",
@@ -132,6 +136,9 @@ const SIGI_USUARIO_COD_KEYS = [
   "IDDEP",
   "ORG_COD_DEP",
 ];
+
+/** Alineado con modo "usuario" en backend (getCodDepFromRow). */
+const SIGI_USUARIO_COD_KEYS = SIGI_COD_DEP_CANDIDATES;
 
 function expandCodDepVariants(token) {
   const s = String(token ?? "").trim();
@@ -178,6 +185,113 @@ function metaCodMatchesSigiRow(metaCodSigi, row) {
     for (const t of codTokensFromField(p)) {
       if (rowToks.has(t)) return true;
     }
+  }
+  return false;
+}
+
+/** Misma lógica que backend getCodDepFromRow (incl. heurística expediente). */
+function getCodDepFromSigiRow(row, mode = "usuario") {
+  if (!row || typeof row !== "object") return null;
+  const upperMap = {};
+  for (const k of Object.keys(row)) {
+    upperMap[String(k).toUpperCase()] = row[k];
+  }
+  for (const c of SIGI_COD_DEP_CANDIDATES) {
+    const v = upperMap[c];
+    if (v != null && String(v).trim() !== "") return String(v).trim();
+  }
+  if (mode !== "expediente") return null;
+
+  for (const k of Object.keys(row)) {
+    const ku = String(k).toUpperCase();
+    if (
+      ku.includes("DESCRIP") ||
+      ku.includes("OBSERV") ||
+      ku.includes("CARATULA") ||
+      ku.includes("TEXTO")
+    ) {
+      continue;
+    }
+    const fromCodDep =
+      (ku.includes("COD") && ku.includes("DEP")) ||
+      ku === "DEP_COD" ||
+      /^COD_DEP/i.test(ku) ||
+      /^DEP_COD/i.test(ku);
+    if (!fromCodDep) continue;
+    const v = row[k];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (!s || s.length > 64) continue;
+    return s;
+  }
+  return null;
+}
+
+/** Igual que backend getDependenciaDescripcionFromExpedienteRow. */
+function getDependenciaDescripcionFromExpedienteRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const upperMap = {};
+  for (const k of Object.keys(row)) {
+    upperMap[String(k).toUpperCase()] = row[k];
+  }
+  const CANDS = [
+    "DEPENDRADICEXPTE",
+    "DEPEND_RADIC_EXPTE",
+    "DEPEND_RADIC_EXPDTE",
+    "NOMB_DEP",
+    "NOM_DEP",
+    "NOMBRE_DEP",
+    "DEPENDENCIA",
+    "DESCRIP_DEP",
+    "DEP_RADICACION",
+    "DEPENDENCIA_RADICACION",
+    "DEPENDENCIA_RADIC",
+  ];
+  for (const c of CANDS) {
+    const v = upperMap[c];
+    if (v != null && String(v).trim() !== "") return String(v).trim();
+  }
+  for (const k of Object.keys(row)) {
+    const ku = String(k).toUpperCase();
+    if (ku.includes("CARATULA") || ku.includes("OBSERV") || ku.includes("TEXTO")) continue;
+    if (ku.includes("DEPEND") && (ku.includes("RADIC") || ku.includes("EXPTE"))) {
+      const v = row[k];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
+  return null;
+}
+
+function normalizeDependenciaLabel(s) {
+  let t = String(s ?? "").trim();
+  if (!t) return "";
+  t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  t = t.replace(/[º°]/gi, "");
+  t = t.replace(/\s+/g, " ").trim().toUpperCase();
+  return t;
+}
+
+function dependenciaLabelsMatch(sigiLabel, numeradorNombre) {
+  if (!sigiLabel || !numeradorNombre) return false;
+  const a = normalizeDependenciaLabel(sigiLabel);
+  const b = normalizeDependenciaLabel(numeradorNombre);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  return false;
+}
+
+/** Igual que backend rowMatchesSessionSigiFilter: tokens y/o nombre dbo.dependencias.nombre. */
+function expedienteRowMatchesAllowedTokens(row, tokensArray, dependenciaNombre) {
+  const allowed = new Set(Array.isArray(tokensArray) ? tokensArray : []);
+  if (allowed.size > 0) {
+    const cod = getCodDepFromSigiRow(row, "expediente");
+    if (cod != null && expandCodDepVariants(cod).some((v) => allowed.has(v))) return true;
+  }
+  const depNom = String(dependenciaNombre ?? "").trim();
+  if (depNom) {
+    const desc = getDependenciaDescripcionFromExpedienteRow(row);
+    if (desc && dependenciaLabelsMatch(desc, depNom)) return true;
   }
   return false;
 }
@@ -317,11 +431,19 @@ function App() {
     motivo: MOTIVOS_ANULACION[0],
     observacion: "",
   });
+  /** dbo.dependencias (cod_dep_sigi) para cruzar filas SIGI con la dependencia activa */
+  const [metaDependencias, setMetaDependencias] = useState([]);
+  /** Códigos permitidos: SP usuario SIGI (DNI) + cod_dep_sigi de la dependencia (mismo criterio que el backend). */
+  const [sigiAllowedCodDepTokens, setSigiAllowedCodDepTokens] = useState([]);
+  const [sigiDependenciaNombre, setSigiDependenciaNombre] = useState("");
 
   function localLogout() {
     setToken("");
     setUser(null);
     setSigiDepOptions([]);
+    setMetaDependencias([]);
+    setSigiAllowedCodDepTokens([]);
+    setSigiDependenciaNombre("");
     setMultiDepGate(null);
     setDepPickerChoice(null);
     setAuthToken("");
@@ -376,7 +498,9 @@ function App() {
         ]);
         if (cancelled) return;
         const recordset = sigiRes.data?.recordset || [];
-        const options = buildMappedSigiDependencias(recordset, metaRes.data || []);
+        const depsList = Array.isArray(metaRes.data) ? metaRes.data : [];
+        setMetaDependencias(depsList);
+        const options = buildMappedSigiDependencias(recordset, depsList);
         setSigiDepOptions(options);
         if (options.length >= 2) {
           setMultiDepGate((prev) => (prev === "ready" ? "ready" : "choose"));
@@ -424,6 +548,30 @@ function App() {
   }, [dataSessionReady]);
 
   useEffect(() => {
+    if (!dataSessionReady || !user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/sigi/allowed-cod-dep-tokens");
+        if (!cancelled) {
+          setSigiAllowedCodDepTokens(Array.isArray(data?.tokens) ? data.tokens : []);
+          setSigiDependenciaNombre(
+            typeof data?.dependenciaNombre === "string" ? data.dependenciaNombre : ""
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setSigiAllowedCodDepTokens([]);
+          setSigiDependenciaNombre("");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataSessionReady, user?.dependenciaId]);
+
+  useEffect(() => {
     if (!dataSessionReady) return;
     if (!TYPES.includes(activeTab)) return;
     loadTipoRows(activeTab, tipoSearch);
@@ -466,15 +614,17 @@ function App() {
   }, [categorias, activeTab]);
 
   async function loadCategorias() {
-    const [catRes, limitsRes] = await Promise.all([
+    const [catRes, limitsRes, depsRes] = await Promise.all([
       api.get("/meta/categorias"),
       api.get("/meta/limits").catch(() => ({ data: null })),
+      api.get("/meta/dependencias").catch(() => ({ data: [] })),
     ]);
     setCategorias(catRes.data);
     const h = Number(limitsRes.data?.annulMaxHoursAfterCreate);
     if (Number.isFinite(h) && h > 0) {
       setAnnulMaxHoursAfterCreate(h);
     }
+    setMetaDependencias(Array.isArray(depsRes.data) ? depsRes.data : []);
   }
 
   async function loadNextNumber(tipo) {
@@ -519,6 +669,10 @@ function App() {
   }
 
   function usarExpedienteSigiEnFormulario(row, rowIdx) {
+    if (!expedienteRowMatchesAllowedTokens(row, sigiAllowedCodDepTokens, sigiDependenciaNombre)) {
+      window.alert(MSG_SIGI_FILA_OTRA_DEPENDENCIA);
+      return;
+    }
     const ex = expedienteFromSigiRow(row, sigiExpediente.queried);
     if (!ex || !EXPEDIENTE_REGEX.test(ex)) {
       window.alert(
@@ -1023,6 +1177,28 @@ function App() {
                     {Array.isArray(sigiExpediente.data.recordset) &&
                     sigiExpediente.data.recordset.length > 0 ? (
                       <div className="sigi-table-wrap">
+                        {sigiAllowedCodDepTokens.length === 0 && !String(sigiDependenciaNombre).trim() ? (
+                          <p className="sigi-panel-error">
+                            No hay criterio de dependencia para tu sesión: hace falta DNI (SP usuario SIGI)
+                            y/o <code>cod_dep_sigi</code> en la dependencia activa, o un nombre de
+                            dependencia válido en el Numerador.
+                          </p>
+                        ) : (
+                          sigiExpediente.data.recordset.some(
+                            (r) =>
+                              !expedienteRowMatchesAllowedTokens(
+                                r,
+                                sigiAllowedCodDepTokens,
+                                sigiDependenciaNombre
+                              )
+                          ) && (
+                            <p className="sigi-panel-hint-dep">
+                              Se listan todas las filas que devolvió SIGI. <strong>Usar expediente</strong>{" "}
+                              solo aplica a la dependencia activa; en el resto el botón aparece atenuado y
+                              al pulsarlo se explica que no corresponde a tu dependencia.
+                            </p>
+                          )
+                        )}
                         <table className="sigi-table">
                           <thead>
                             <tr>
@@ -1035,6 +1211,11 @@ function App() {
                           <tbody>
                             {sigiExpediente.data.recordset.map((row, idx) => {
                               const keys = Object.keys(sigiExpediente.data.recordset[0]);
+                              const coincideDepActiva = expedienteRowMatchesAllowedTokens(
+                                row,
+                                sigiAllowedCodDepTokens,
+                                sigiDependenciaNombre
+                              );
                               return (
                                 <tr
                                   key={idx}
@@ -1045,8 +1226,21 @@ function App() {
                                   <td className="sigi-col-action">
                                     <button
                                       type="button"
-                                      className="sigi-row-use"
-                                      onClick={() => usarExpedienteSigiEnFormulario(row, idx)}
+                                      className={`sigi-row-use${
+                                        !coincideDepActiva ? " sigi-row-use-blocked" : ""
+                                      }`}
+                                      title={
+                                        coincideDepActiva
+                                          ? "Cargar este expediente en el formulario"
+                                          : MSG_SIGI_FILA_OTRA_DEPENDENCIA
+                                      }
+                                      onClick={() => {
+                                        if (!coincideDepActiva) {
+                                          window.alert(MSG_SIGI_FILA_OTRA_DEPENDENCIA);
+                                          return;
+                                        }
+                                        usarExpedienteSigiEnFormulario(row, idx);
+                                      }}
                                     >
                                       Usar expediente
                                     </button>

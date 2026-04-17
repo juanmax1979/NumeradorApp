@@ -179,10 +179,103 @@ async function mergeCodDepsFromNumeradorDependencia(allowed, dependenciaId) {
   addCodDepTokens(allowed, raw);
 }
 
-function rowMatchesAllowedCodDep(row, allowed) {
-  const cod = getCodDepFromRow(row, "expediente");
-  if (cod == null) return false;
-  return expandCodDepVariants(cod).some((v) => allowed.has(v));
+/** Texto de dependencia en filas del SP expediente (p. ej. DependRadicExpte). */
+function getDependenciaDescripcionFromExpedienteRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const upperMap = {};
+  for (const k of Object.keys(row)) {
+    upperMap[String(k).toUpperCase()] = row[k];
+  }
+  const CANDS = [
+    "DEPENDRADICEXPTE",
+    "DEPEND_RADIC_EXPTE",
+    "DEPEND_RADIC_EXPDTE",
+    "NOMB_DEP",
+    "NOM_DEP",
+    "NOMBRE_DEP",
+    "DEPENDENCIA",
+    "DESCRIP_DEP",
+    "DEP_RADICACION",
+    "DEPENDENCIA_RADICACION",
+    "DEPENDENCIA_RADIC",
+  ];
+  for (const c of CANDS) {
+    const v = upperMap[c];
+    if (v != null && String(v).trim() !== "") return String(v).trim();
+  }
+  for (const k of Object.keys(row)) {
+    const ku = String(k).toUpperCase();
+    if (ku.includes("CARATULA") || ku.includes("OBSERV") || ku.includes("TEXTO")) continue;
+    if (ku.includes("DEPEND") && (ku.includes("RADIC") || ku.includes("EXPTE"))) {
+      const v = row[k];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
+  return null;
+}
+
+function normalizeDependenciaLabel(s) {
+  let t = String(s ?? "").trim();
+  if (!t) return "";
+  t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  t = t.replace(/[º°]/gi, "");
+  t = t.replace(/\s+/g, " ").trim().toUpperCase();
+  return t;
+}
+
+function dependenciaLabelsMatch(sigiLabel, numeradorNombre) {
+  if (!sigiLabel || !numeradorNombre) return false;
+  const a = normalizeDependenciaLabel(sigiLabel);
+  const b = normalizeDependenciaLabel(numeradorNombre);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  return false;
+}
+
+function expedienteRowHasMatchableDepData(row) {
+  return (
+    getCodDepFromRow(row, "expediente") != null ||
+    getDependenciaDescripcionFromExpedienteRow(row) != null
+  );
+}
+
+/**
+ * Misma lógica que runSigiExpediente: tokens del SP usuario SIGI (DNI) + cod_dep_sigi de la dependencia
+ * activa en dbo.dependencias (pueden no coincidir literalmente entre SIGI y Numerador).
+ */
+async function buildSessionAllowedCodDepSet(req) {
+  const allowed = new Set();
+  const dniInt = await resolveDniIntForRequest(req);
+  if (dniInt != null) {
+    try {
+      const usuarioRs = await executeSigiProcedure(PROC_USUARIO, sqlParamsUsuarioSigi(dniInt));
+      const fromUser = collectCodDepsFromUsuarioSigiResult(usuarioRs);
+      for (const t of fromUser) allowed.add(t);
+    } catch {
+      /* SIGI usuario no disponible: se siguen usando tokens desde cod_dep_sigi del Numerador */
+    }
+  }
+  await mergeCodDepsFromNumeradorDependencia(allowed, req.user?.dependenciaId);
+  return allowed;
+}
+
+/** Tokens SIGI + nombre de la dependencia activa en Numerador (para filtrar expediente por código o por texto). */
+async function buildSessionSigiFilterContext(req) {
+  const allowed = await buildSessionAllowedCodDepSet(req);
+  let dependenciaNombre = null;
+  const id = Number(req.user?.dependenciaId);
+  if (Number.isInteger(id) && id > 0) {
+    const rs = await runQuery(
+      `SELECT LTRIM(RTRIM(nombre)) AS nombre
+       FROM dbo.dependencias
+       WHERE id = @id AND activa = 1`,
+      { id }
+    );
+    const n = rs.recordset[0]?.nombre;
+    if (n != null && String(n).trim() !== "") dependenciaNombre = String(n).trim();
+  }
+  return { allowed, dependenciaNombre };
 }
 
 function flattenSigiRecordsets(result) {
@@ -195,21 +288,6 @@ function flattenSigiRecordsets(result) {
     rows.push(...result.recordset);
   }
   return rows;
-}
-
-function filterExpedienteResultByCodDep(result, allowed) {
-  const filterRows = (rows) => {
-    if (!Array.isArray(rows)) return rows;
-    return rows.filter((row) => rowMatchesAllowedCodDep(row, allowed));
-  };
-  const recordsets = Array.isArray(result.recordsets)
-    ? result.recordsets.map(filterRows)
-    : result.recordsets;
-  const recordset =
-    recordsets && recordsets.length && Array.isArray(recordsets[0])
-      ? recordsets[0]
-      : filterRows(result.recordset || []);
-  return { ...result, recordset, recordsets };
 }
 
 async function resolveDniIntForRequest(req) {
@@ -297,19 +375,6 @@ async function runSigiExpediente(req, res, next) {
       });
     }
 
-    const usuarioRs = await executeSigiProcedure(
-      PROC_USUARIO,
-      sqlParamsUsuarioSigi(dniInt)
-    );
-    const allowed = collectCodDepsFromUsuarioSigiResult(usuarioRs);
-    await mergeCodDepsFromNumeradorDependencia(allowed, req.user?.dependenciaId);
-    if (allowed.size === 0) {
-      return res.status(403).json({
-        message:
-          "No hay códigos de dependencia SIGI para filtrar: el SP de usuario no devolvió COD_DEP y la dependencia del Numerador no tiene cod_dep_sigi cargado.",
-      });
-    }
-
     const paramName =
       String(process.env.SIGI_SP_EXPEDIENTE_PARAM || "NroExpediente").trim() ||
       "NroExpediente";
@@ -320,32 +385,37 @@ async function runSigiExpediente(req, res, next) {
     const result = await executeSigiProcedure(PROC_EXPEDIENTE, sqlParams);
 
     const allRows = flattenSigiRecordsets(result);
-    const canFilterRows =
-      allRows.length === 0 ||
-      allRows.some((row) => getCodDepFromRow(row, "expediente") != null);
+    const canDetectDepPerRow =
+      allRows.length === 0 || allRows.some((row) => expedienteRowHasMatchableDepData(row));
 
-    let outResult = result;
     let filterNote = null;
-    if (canFilterRows) {
-      outResult = filterExpedienteResultByCodDep(result, allowed);
-    } else {
+    if (!canDetectDepPerRow) {
       filterNote =
-        "SIGI no devolvió código de dependencia reconocible por fila; se muestran todos los datos que devolvió el trámite (el filtro por su dependencia no pudo aplicarse).";
+        "SIGI no devolvió código ni texto de dependencia reconocible por fila; no se puede indicar si cada fila corresponde a su dependencia activa.";
     }
 
     const payload = unwrapResult(
       PROC_EXPEDIENTE,
       { [paramName]: nro },
-      outResult
+      result
     );
-    const filteredRows = flattenSigiRecordsets(outResult);
     if (filterNote) {
       payload.message = filterNote;
-    } else if (allRows.length > 0 && filteredRows.length === 0) {
-      payload.message =
-        "El expediente figura en SIGI pero no está asignado a ninguna de sus dependencias.";
     }
     return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/** Para el front: mismos tokens que se usan al filtrar /sigi/expediente (usuario SIGI + cod_dep_sigi). */
+async function getSigiAllowedCodDepTokens(req, res, next) {
+  try {
+    const ctx = await buildSessionSigiFilterContext(req);
+    return res.json({
+      tokens: [...ctx.allowed].sort(),
+      dependenciaNombre: ctx.dependenciaNombre || "",
+    });
   } catch (error) {
     return next(error);
   }
@@ -354,6 +424,7 @@ async function runSigiExpediente(req, res, next) {
 module.exports = {
   runSigiUsuarioPorDni,
   runSigiExpediente,
+  getSigiAllowedCodDepTokens,
   resolveDniIntForRequest,
   getAllowedDependenciaIdsForDni,
 };

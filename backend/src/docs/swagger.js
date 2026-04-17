@@ -672,6 +672,37 @@ const options = {
         },
       },
 
+      "/api/sigi/allowed-cod-dep-tokens": {
+        get: {
+          tags: ["SIGI"],
+          summary:
+            "Códigos de dependencia SIGI permitidos para la sesión (SP usuario por DNI + cod_dep_sigi de la dependencia activa)",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Lista de tokens (strings) usada también al filtrar consulta de expediente",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      tokens: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      dependenciaNombre: {
+                        type: "string",
+                        description: "Nombre dbo.dependencias de la dependencia activa (cruce por texto p. ej. DependRadicExpte)",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "No autenticado" },
+          },
+        },
+      },
       "/api/sigi/usuario": {
         post: {
           tags: ["SIGI"],
