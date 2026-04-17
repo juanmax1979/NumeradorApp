@@ -409,6 +409,24 @@ td {
   margin-bottom: 6px;
 }
 
+.actions button:disabled,
+.actions button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  color: var(--azul-800);
+  border: 1px solid var(--azul-400);
+  box-shadow: none;
+  transform: none;
+  pointer-events: none;
+}
+
+.actions button:disabled:hover,
+.actions button[disabled]:hover {
+  background: linear-gradient(180deg, var(--azul-300) 0%, var(--azul-400) 100%);
+  box-shadow: none;
+}
+
 .pagination-bar {
   margin-top: 10px;
   display: flex;

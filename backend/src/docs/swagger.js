@@ -470,7 +470,10 @@ const options = {
           },
           responses: {
             200: { description: "OK" },
-            400: { description: "Motivo inválido o registro ya anulado" },
+            400: {
+              description:
+                "Motivo inválido, registro ya anulado o fuera del plazo (ANNUL_MAX_HOURS_AFTER_CREATE)",
+            },
             401: { description: "No autenticado" },
             403: { description: "No autorizado" },
             404: { description: "No encontrado" },
@@ -627,6 +630,32 @@ const options = {
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: "JSON de categorías" },
+            401: { description: "No autenticado" },
+          },
+        },
+      },
+      "/api/meta/limits": {
+        get: {
+          tags: ["Meta"],
+          summary: "Límites de negocio (p. ej. plazo de anulación)",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      annulMaxHoursAfterCreate: {
+                        type: "number",
+                        description: "Horas desde la creación en las que se permite anular",
+                      },
+                    },
+                  },
+                },
+              },
+            },
             401: { description: "No autenticado" },
           },
         },

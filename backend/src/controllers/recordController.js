@@ -1,4 +1,5 @@
 const { getPool, sql, runQuery } = require("../config/db");
+const { getAnnulMaxHoursAfterCreate } = require("../config/appLimits");
 const ExcelJS = require("exceljs");
 const { logAudit } = require("../services/auditService");
 
@@ -379,8 +380,12 @@ async function annulRecord(req, res, next) {
       return res.status(400).json({ message: "La observación admite como máximo 400 caracteres" });
     }
 
+    const maxHours = getAnnulMaxHoursAfterCreate();
+    const maxMinutes = Math.min(Math.round(maxHours * 60), 2147483647);
+
     const rs = await runQuery(
-      `SELECT id, usuario, expediente, tipo, numero
+      `SELECT id, usuario, expediente, tipo, numero, fecha,
+        DATEDIFF(MINUTE, fecha, SYSUTCDATETIME()) AS edad_minutos
        FROM dbo.registros WHERE id = @id AND dependencia_id = @dependenciaId`,
       { id, dependenciaId }
     );
@@ -391,6 +396,13 @@ async function annulRecord(req, res, next) {
     }
     if (!canModify(req.user, row.usuario)) {
       return res.status(403).json({ message: "Solo podés anular tus registros" });
+    }
+
+    const edadMinutos = Number(row.edad_minutos);
+    if (Number.isFinite(edadMinutos) && edadMinutos > maxMinutes) {
+      return res.status(400).json({
+        message: `Solo se puede anular dentro de las ${maxHours} horas posteriores a la creación del recaudo.`,
+      });
     }
 
     const anuladoPor = req.user.nombre;

@@ -24,6 +24,22 @@ function fmtDate(value) {
   return dayjs(value).format("DD/MM/YYYY HH:mm");
 }
 
+/**
+ * True = fuera de plazo (el botón Anular debe ir deshabilitado).
+ * Misma idea que el backend: minutos desde `row.fecha` vs. tope en horas.
+ */
+function isPastAnnulDeadline(row, maxHoursAfterCreate) {
+  if (!Number.isFinite(maxHoursAfterCreate) || maxHoursAfterCreate <= 0) {
+    return true;
+  }
+  if (!row?.fecha) {
+    return true;
+  }
+  const maxMinutes = maxHoursAfterCreate * 60;
+  const minutesElapsed = dayjs().diff(dayjs(row.fecha), "minute", true);
+  return minutesElapsed > maxMinutes;
+}
+
 /** Incluye formato Numerador corto y SIGI largo (NVARCHAR 120 en BD) */
 const EXPEDIENTE_REGEX = /^\d{1,8}\/\d{4}-\d{1,4}$/;
 const SIGI_EXPEDIENTE_REGEX = EXPEDIENTE_REGEX;
@@ -295,6 +311,7 @@ function App() {
       TAB_KEYS.map((tab) => [tab, { page: 1, pageSize: 20 }])
     )
   );
+  const [annulMaxHoursAfterCreate, setAnnulMaxHoursAfterCreate] = useState(48);
   const [annulModalRow, setAnnulModalRow] = useState(null);
   const [annulForm, setAnnulForm] = useState({
     motivo: MOTIVOS_ANULACION[0],
@@ -449,8 +466,15 @@ function App() {
   }, [categorias, activeTab]);
 
   async function loadCategorias() {
-    const { data } = await api.get("/meta/categorias");
-    setCategorias(data);
+    const [catRes, limitsRes] = await Promise.all([
+      api.get("/meta/categorias"),
+      api.get("/meta/limits").catch(() => ({ data: null })),
+    ]);
+    setCategorias(catRes.data);
+    const h = Number(limitsRes.data?.annulMaxHoursAfterCreate);
+    if (Number.isFinite(h) && h > 0) {
+      setAnnulMaxHoursAfterCreate(h);
+    }
   }
 
   async function loadNextNumber(tipo) {
@@ -656,6 +680,12 @@ function App() {
 
   function openAnnulModal(row) {
     if (row.expediente === "ANULADO") return;
+    if (isPastAnnulDeadline(row, annulMaxHoursAfterCreate)) {
+      alert(
+        `Solo se puede anular dentro de las ${annulMaxHoursAfterCreate} horas posteriores a la creación del recaudo.`
+      );
+      return;
+    }
     setAnnulForm({ motivo: MOTIVOS_ANULACION[0], observacion: "" });
     setAnnulModalRow(row);
   }
@@ -1155,7 +1185,9 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {paginatedRows.map((row) => (
+              {paginatedRows.map((row) => {
+                const fueraDePlazoAnular = isPastAnnulDeadline(row, annulMaxHoursAfterCreate);
+                return (
                 <tr key={row.id} className={row.expediente === "ANULADO" ? "anulado" : ""}>
                   <td>{row.tipo}</td>
                   <td>{row.numero}/{row.anio}</td>
@@ -1174,7 +1206,16 @@ function App() {
                         <button type="button" onClick={() => actionEdit(row)}>
                           Modificar
                         </button>
-                        <button type="button" onClick={() => openAnnulModal(row)}>
+                        <button
+                          type="button"
+                          disabled={fueraDePlazoAnular}
+                          title={
+                            fueraDePlazoAnular
+                              ? `Plazo vencido: solo se puede anular dentro de las ${annulMaxHoursAfterCreate} h. desde la creación del recaudo.`
+                              : undefined
+                          }
+                          onClick={() => openAnnulModal(row)}
+                        >
                           Anular
                         </button>
                         {row.tipo === "OFICIO" && (
@@ -1186,7 +1227,8 @@ function App() {
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           <div className="pagination-bar">
