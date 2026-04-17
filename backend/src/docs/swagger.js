@@ -446,9 +446,33 @@ const options = {
           parameters: [
             { name: "id", in: "path", required: true, schema: { type: "integer" } },
           ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["motivo"],
+                  properties: {
+                    motivo: {
+                      type: "string",
+                      enum: [
+                        "Decreto no firmado",
+                        "Rechazado por incongruencias",
+                        "Otro",
+                      ],
+                    },
+                    observacion: { type: "string", maxLength: 400 },
+                  },
+                },
+              },
+            },
+          },
           responses: {
             200: { description: "OK" },
+            400: { description: "Motivo inválido o registro ya anulado" },
             401: { description: "No autenticado" },
+            403: { description: "No autorizado" },
             404: { description: "No encontrado" },
           },
         },

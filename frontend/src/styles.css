@@ -184,6 +184,49 @@ body {
   padding: 10px 16px;
 }
 
+.dep-modal.annul-modal {
+  width: min(520px, 100%);
+}
+
+.annul-modal .annul-modal-label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--azul-900);
+}
+
+.annul-modal-textarea {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 96px;
+}
+
+.annul-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.annul-modal-actions .primary,
+.annul-modal-actions .secondary {
+  min-width: 120px;
+  padding: 10px 16px;
+}
+
+table .cell-wrap {
+  max-width: 220px;
+  white-space: normal;
+  word-break: break-word;
+}
+
 /* Nivel 2 — navegación (intermedio, distinto del topbar y del contenido) */
 .tabs {
   display: flex;

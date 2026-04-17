@@ -9,6 +9,12 @@ const TIPOS = [
   "SENTENCIA RELATORIA",
 ];
 
+const MOTIVOS_ANULACION = [
+  "Decreto no firmado",
+  "Rechazado por incongruencias",
+  "Otro",
+];
+
 function canModify(user, createdBy) {
   return user.rol === "admin" || user.nombre === createdBy;
 }
@@ -62,7 +68,11 @@ async function listRecords(req, res, next) {
     let query = `
       SELECT TOP (${cappedLimit})
         id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha,
-        ISNULL(remitido, 0) AS remitido, remitido_por, remitido_fecha
+        ISNULL(remitido, 0) AS remitido, remitido_por, remitido_fecha,
+        ISNULL(anulado_por, '') AS anulado_por,
+        ISNULL(anulacion_motivo, '') AS anulacion_motivo,
+        ISNULL(anulacion_observacion, '') AS anulacion_observacion,
+        anulacion_fecha
       FROM dbo.registros
       WHERE (expediente LIKE @term OR detalle LIKE @term OR usuario LIKE @term OR tipo LIKE @term)
         AND fecha BETWEEN @fromDate AND @toDate
@@ -102,7 +112,11 @@ async function exportRecordsExcel(req, res, next) {
     let query = `
       SELECT TOP (${cappedLimit})
         id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha,
-        ISNULL(remitido, 0) AS remitido
+        ISNULL(remitido, 0) AS remitido,
+        ISNULL(anulado_por, '') AS anulado_por,
+        ISNULL(anulacion_motivo, '') AS anulacion_motivo,
+        ISNULL(anulacion_observacion, '') AS anulacion_observacion,
+        anulacion_fecha
       FROM dbo.registros
       WHERE (expediente LIKE @term OR detalle LIKE @term OR usuario LIKE @term OR tipo LIKE @term)
         AND fecha BETWEEN @fromDate AND @toDate
@@ -129,6 +143,10 @@ async function exportRecordsExcel(req, res, next) {
       { header: "Remitido", key: "remitido", width: 12 },
       { header: "Usuario", key: "usuario", width: 24 },
       { header: "Fecha", key: "fecha", width: 24 },
+      { header: "Anulado por", key: "anulado_por", width: 22 },
+      { header: "Motivo anulación", key: "anulacion_motivo", width: 28 },
+      { header: "Obs. anulación", key: "anulacion_observacion", width: 36 },
+      { header: "Fecha anulación", key: "anulacion_fecha", width: 22 },
     ];
     sheet.getRow(1).font = { bold: true };
     rs.recordset.forEach((row) =>
@@ -136,6 +154,7 @@ async function exportRecordsExcel(req, res, next) {
         ...row,
         remitido: row.remitido ? "SI" : "NO",
         fecha: row.fecha ? new Date(row.fecha).toISOString() : "",
+        anulacion_fecha: row.anulacion_fecha ? new Date(row.anulacion_fecha).toISOString() : "",
       })
     );
 
@@ -237,6 +256,9 @@ async function updateRecord(req, res, next) {
     );
     const row = rs.recordset[0];
     if (!row) return res.status(404).json({ message: "Registro no encontrado" });
+    if (row.expediente === "ANULADO") {
+      return res.status(400).json({ message: "No se puede modificar un registro anulado" });
+    }
     if (!canModify(req.user, row.usuario)) {
       return res.status(403).json({ message: "Solo podés modificar tus registros" });
     }
@@ -286,12 +308,15 @@ async function toggleRemitido(req, res, next) {
     const dependenciaId = getDependenciaId(req);
     const id = Number(req.params.id);
     const rs = await runQuery(
-      `SELECT id, tipo, numero, ISNULL(remitido, 0) AS remitido
+      `SELECT id, tipo, numero, expediente, ISNULL(remitido, 0) AS remitido
        FROM dbo.registros WHERE id = @id AND dependencia_id = @dependenciaId`,
       { id, dependenciaId }
     );
     const row = rs.recordset[0];
     if (!row) return res.status(404).json({ message: "Registro no encontrado" });
+    if (row.expediente === "ANULADO") {
+      return res.status(400).json({ message: "No se puede cambiar remitido en un registro anulado" });
+    }
     if (row.tipo !== "OFICIO") {
       return res.status(400).json({ message: "La función remitido solo aplica a OFICIO" });
     }
@@ -342,6 +367,18 @@ async function annulRecord(req, res, next) {
   try {
     const dependenciaId = getDependenciaId(req);
     const id = Number(req.params.id);
+    const motivo = String(req.body?.motivo || "").trim();
+    const observacion = String(req.body?.observacion || "").trim();
+
+    if (!MOTIVOS_ANULACION.includes(motivo)) {
+      return res.status(400).json({
+        message: `Motivo inválido. Opciones: ${MOTIVOS_ANULACION.join(", ")}`,
+      });
+    }
+    if (observacion.length > 400) {
+      return res.status(400).json({ message: "La observación admite como máximo 400 caracteres" });
+    }
+
     const rs = await runQuery(
       `SELECT id, usuario, expediente, tipo, numero
        FROM dbo.registros WHERE id = @id AND dependencia_id = @dependenciaId`,
@@ -349,18 +386,28 @@ async function annulRecord(req, res, next) {
     );
     const row = rs.recordset[0];
     if (!row) return res.status(404).json({ message: "Registro no encontrado" });
+    if (row.expediente === "ANULADO") {
+      return res.status(400).json({ message: "El registro ya está anulado" });
+    }
     if (!canModify(req.user, row.usuario)) {
       return res.status(403).json({ message: "Solo podés anular tus registros" });
     }
 
+    const anuladoPor = req.user.nombre;
+
     await runQuery(
       `UPDATE dbo.registros
        SET expediente = 'ANULADO',
-           detalle = @detalle
+           anulado_por = @anuladoPor,
+           anulacion_motivo = @motivo,
+           anulacion_observacion = @observacion,
+           anulacion_fecha = SYSUTCDATETIME()
        WHERE id = @id`,
       {
         id,
-        detalle: `Anulado por ${req.user.nombre}`,
+        anuladoPor,
+        motivo,
+        observacion,
       }
     );
     await logAudit({
@@ -370,8 +417,8 @@ async function annulRecord(req, res, next) {
       accion: "ANULACION",
       campo: "expediente",
       valorAnterior: row.expediente,
-      valorNuevo: "ANULADO",
-      usuario: req.user.nombre,
+      valorNuevo: `ANULADO | ${motivo}${observacion ? ` | ${observacion}` : ""} | por ${anuladoPor}`,
+      usuario: anuladoPor,
     });
     return res.json({ message: `${row.tipo} N° ${row.numero} anulado` });
   } catch (error) {

@@ -13,6 +13,12 @@ const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS"];
 const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+const MOTIVOS_ANULACION = [
+  "Decreto no firmado",
+  "Rechazado por incongruencias",
+  "Otro",
+];
+
 function fmtDate(value) {
   if (!value) return "-";
   return dayjs(value).format("DD/MM/YYYY HH:mm");
@@ -289,6 +295,11 @@ function App() {
       TAB_KEYS.map((tab) => [tab, { page: 1, pageSize: 20 }])
     )
   );
+  const [annulModalRow, setAnnulModalRow] = useState(null);
+  const [annulForm, setAnnulForm] = useState({
+    motivo: MOTIVOS_ANULACION[0],
+    observacion: "",
+  });
 
   function localLogout() {
     setToken("");
@@ -625,6 +636,10 @@ function App() {
   }
 
   async function actionEdit(row) {
+    if (row.expediente === "ANULADO") {
+      alert("No se puede modificar un registro anulado.");
+      return;
+    }
     const expediente = prompt("Nuevo expediente (formato 12345/2026-1):", row.expediente);
     if (!expediente) return;
     if (!isValidExpediente(expediente)) {
@@ -639,16 +654,33 @@ function App() {
     await refreshCurrentView();
   }
 
-  async function actionAnnul(row) {
-    if (!confirm(`¿Anular ${row.tipo} N° ${row.numero}?`)) return;
-    await api.post(`/records/${row.id}/annul`);
-    await refreshCurrentView();
+  function openAnnulModal(row) {
+    if (row.expediente === "ANULADO") return;
+    setAnnulForm({ motivo: MOTIVOS_ANULACION[0], observacion: "" });
+    setAnnulModalRow(row);
   }
 
-  async function actionDelete(row) {
-    if (!confirm(`¿Borrar DEFINITIVAMENTE ${row.tipo} N° ${row.numero}?`)) return;
-    await api.delete(`/records/${row.id}`);
-    await refreshCurrentView();
+  function closeAnnulModal() {
+    setAnnulModalRow(null);
+  }
+
+  async function submitAnnulacion() {
+    if (!annulModalRow) return;
+    const observacion = annulForm.observacion.trim();
+    if (annulForm.motivo === "Otro" && !observacion) {
+      alert("Si el motivo es «Otro», debe ingresar una observación.");
+      return;
+    }
+    try {
+      await api.post(`/records/${annulModalRow.id}/annul`, {
+        motivo: annulForm.motivo,
+        observacion,
+      });
+      closeAnnulModal();
+      await refreshCurrentView();
+    } catch (e) {
+      alert(e.response?.data?.message || "No se pudo anular el registro");
+    }
   }
 
   async function actionToggleRemitido(row) {
@@ -1115,6 +1147,10 @@ function App() {
                 <th>Remitido</th>
                 <th>Fecha</th>
                 <th>Usuario</th>
+                <th>Motivo anulación</th>
+                <th>Observación</th>
+                <th>Anulado por</th>
+                <th>Fecha anulación</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -1128,16 +1164,25 @@ function App() {
                   <td>{row.remitido ? "SI" : "-"}</td>
                   <td>{fmtDate(row.fecha)}</td>
                   <td>{row.usuario}</td>
+                  <td>{row.anulacion_motivo || "—"}</td>
+                  <td className="cell-wrap">{row.anulacion_observacion || "—"}</td>
+                  <td>{row.anulado_por || "—"}</td>
+                  <td>{row.anulacion_fecha ? fmtDate(row.anulacion_fecha) : "—"}</td>
                   <td className="actions">
-                    <button onClick={() => actionEdit(row)}>Modificar</button>
-                    <button onClick={() => actionAnnul(row)}>Anular</button>
-                    {row.tipo === "OFICIO" && (
-                      <button onClick={() => actionToggleRemitido(row)}>Remitido</button>
-                    )}
-                    {user?.rol === "admin" && (
-                      <button className="danger" onClick={() => actionDelete(row)}>
-                        Borrar
-                      </button>
+                    {row.expediente !== "ANULADO" && (
+                      <>
+                        <button type="button" onClick={() => actionEdit(row)}>
+                          Modificar
+                        </button>
+                        <button type="button" onClick={() => openAnnulModal(row)}>
+                          Anular
+                        </button>
+                        {row.tipo === "OFICIO" && (
+                          <button type="button" onClick={() => actionToggleRemitido(row)}>
+                            Remitido
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>
@@ -1213,6 +1258,60 @@ function App() {
           </>
         )}
       </main>
+
+      {annulModalRow && (
+        <div
+          className="dep-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="annul-modal-title"
+        >
+          <div className="dep-modal annul-modal">
+            <h2 id="annul-modal-title">
+              Anular {annulModalRow.tipo} N° {annulModalRow.numero}/{annulModalRow.anio}
+            </h2>
+            <p className="dep-modal-hint">
+              Indique el motivo y, si corresponde, una observación. Quedará registrado quien anula el
+              recaudo.
+            </p>
+            <label className="annul-modal-label" htmlFor="annul-motivo">
+              Motivo de anulación
+            </label>
+            <select
+              id="annul-motivo"
+              className="dep-modal-select"
+              value={annulForm.motivo}
+              onChange={(e) => setAnnulForm((p) => ({ ...p, motivo: e.target.value }))}
+            >
+              {MOTIVOS_ANULACION.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <label className="annul-modal-label" htmlFor="annul-obs">
+              Observación
+            </label>
+            <textarea
+              id="annul-obs"
+              className="annul-modal-textarea"
+              rows={4}
+              maxLength={400}
+              placeholder="Detalle adicional (obligatorio si el motivo es «Otro»)"
+              value={annulForm.observacion}
+              onChange={(e) => setAnnulForm((p) => ({ ...p, observacion: e.target.value }))}
+            />
+            <div className="annul-modal-actions">
+              <button type="button" className="secondary" onClick={closeAnnulModal}>
+                Cancelar
+              </button>
+              <button type="button" className="primary" onClick={submitAnnulacion}>
+                Confirmar anulación
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {multiDepGate === "choose" && (
         <div

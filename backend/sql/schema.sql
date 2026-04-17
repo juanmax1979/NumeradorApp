@@ -45,6 +45,10 @@ BEGIN
         remitido BIT NOT NULL DEFAULT 0,
         remitido_por NVARCHAR(120) NOT NULL DEFAULT '',
         remitido_fecha DATETIME2 NULL,
+        anulado_por NVARCHAR(120) NOT NULL DEFAULT '',
+        anulacion_motivo NVARCHAR(80) NOT NULL DEFAULT '',
+        anulacion_observacion NVARCHAR(400) NOT NULL DEFAULT '',
+        anulacion_fecha DATETIME2 NULL,
         CONSTRAINT FK_registros_dependencias
             FOREIGN KEY (dependencia_id) REFERENCES dbo.dependencias(id)
     );
