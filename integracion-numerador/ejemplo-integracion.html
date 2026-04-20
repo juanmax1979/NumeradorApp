@@ -94,6 +94,18 @@
         return apiEl.value.trim().replace(/\/+$/, "");
       }
 
+      async function ensureReachableApiBase() {
+        var current = apiBaseUrl();
+        if (current !== "/api") return;
+        try {
+          var res = await fetch("/api/meta/health", { method: "GET" });
+          if (res.ok) return;
+        } catch (_) {
+          // Sin proxy same-origin: fallback a backend local
+        }
+        apiEl.value = "http://localhost:4000/api";
+      }
+
       function setDependenciaPlaceholder(text) {
         depEl.innerHTML = "";
         var option = document.createElement("option");
@@ -165,6 +177,7 @@
       });
       apiEl.addEventListener("change", cargarDependencias);
       apiEl.addEventListener("input", scheduleCargarDependencias);
+      ensureReachableApiBase().then(cargarDependencias);
 
       function abrirNumerador() {
         var api = apiBaseUrl();

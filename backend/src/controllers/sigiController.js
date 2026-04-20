@@ -128,13 +128,51 @@ function collectCodDepsFromUsuarioSigiResult(result) {
   return set;
 }
 
+function getDependenciaNameFromUsuarioRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const upperMap = {};
+  for (const k of Object.keys(row)) {
+    upperMap[String(k).toUpperCase()] = row[k];
+  }
+  const CANDS = [
+    "NOMB_DEP",
+    "NOM_DEP",
+    "NOMBRE_DEP",
+    "DEPENDENCIA",
+    "DEPENDENCIA_NOMBRE",
+  ];
+  for (const c of CANDS) {
+    const v = upperMap[c];
+    if (v != null && String(v).trim() !== "") return String(v).trim();
+  }
+  return null;
+}
+
+function collectDependenciaNamesFromUsuarioSigiResult(result) {
+  const rows = [];
+  if (Array.isArray(result.recordsets) && result.recordsets.length) {
+    for (const rs of result.recordsets) {
+      if (Array.isArray(rs)) rows.push(...rs);
+    }
+  } else if (Array.isArray(result.recordset)) {
+    rows.push(...result.recordset);
+  }
+  const names = new Set();
+  for (const row of rows) {
+    const n = getDependenciaNameFromUsuarioRow(row);
+    if (n) names.add(n);
+  }
+  return names;
+}
+
 /**
  * IDs en dbo.dependencias cuyo cod_dep_sigi coincide con algún COD_DEP devuelto por el SP usuario SIGI.
  */
 async function getAllowedDependenciaIdsForDni(dniInt) {
   const result = await executeSigiProcedure(PROC_USUARIO, sqlParamsUsuarioSigi(dniInt));
   const allowed = collectCodDepsFromUsuarioSigiResult(result);
-  if (allowed.size === 0) return [];
+  const allowedNames = collectDependenciaNamesFromUsuarioSigiResult(result);
+  if (allowed.size === 0 && allowedNames.size === 0) return [];
 
   const rs = await runQuery(
     `SELECT id, cod_dep_sigi AS cod
@@ -145,6 +183,7 @@ async function getAllowedDependenciaIdsForDni(dniInt) {
   const ids = [];
   for (const row of rs.recordset) {
     const raw = row.cod;
+    let matchedByCode = false;
     if (raw == null || String(raw).trim() === "") continue;
     for (const part of String(raw).split(/[,;]+/)) {
       const p = part.trim();
@@ -158,7 +197,27 @@ async function getAllowedDependenciaIdsForDni(dniInt) {
       }
       if (hit) {
         ids.push(Number(row.id));
+        matchedByCode = true;
         break;
+      }
+    }
+    if (matchedByCode) continue;
+  }
+
+  if (allowedNames.size > 0) {
+    const namesRs = await runQuery(
+      `SELECT id, nombre
+       FROM dbo.dependencias
+       WHERE activa = 1`
+    );
+    for (const row of namesRs.recordset) {
+      const nombre = String(row.nombre || "").trim();
+      if (!nombre) continue;
+      for (const sigiNombre of allowedNames) {
+        if (dependenciaLabelsMatch(sigiNombre, nombre)) {
+          ids.push(Number(row.id));
+          break;
+        }
       }
     }
   }

@@ -189,6 +189,23 @@ function metaCodMatchesSigiRow(metaCodSigi, row) {
   return false;
 }
 
+function sigiDependenciaNombreFromRow(row) {
+  return sigiRowField(
+    row,
+    "NOMB_DEP",
+    "NOM_DEP",
+    "NOMBRE_DEP",
+    "DEPENDENCIA",
+    "DEPENDENCIA_NOMBRE"
+  );
+}
+
+function metaNameMatchesSigiRow(metaName, row) {
+  const sigiName = sigiDependenciaNombreFromRow(row);
+  if (!sigiName || !metaName) return false;
+  return dependenciaLabelsMatch(sigiName, metaName);
+}
+
 /** Misma lógica que backend getCodDepFromRow (incl. heurística expediente). */
 function getCodDepFromSigiRow(row, mode = "usuario") {
   if (!row || typeof row !== "object") return null;
@@ -320,7 +337,9 @@ function buildMappedSigiDependencias(recordset, metaDeps) {
   for (const row of recordset) {
     for (const m of list) {
       if (!m || !m.id || m.activa === false || m.activa === 0) continue;
-      if (!metaCodMatchesSigiRow(m.codDepSigi, row)) continue;
+      const byCod = metaCodMatchesSigiRow(m.codDepSigi, row);
+      const byName = metaNameMatchesSigiRow(m.nombre, row);
+      if (!byCod && !byName) continue;
       const id = Number(m.id);
       const label = sigiDepLabelFromRow(row);
       const prev = byId.get(id);
