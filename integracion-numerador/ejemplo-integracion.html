@@ -94,6 +94,31 @@
         return apiEl.value.trim().replace(/\/+$/, "");
       }
 
+      function decodeJwtPayload(token) {
+        try {
+          var parts = String(token || "").split(".");
+          if (parts.length < 2) return null;
+          var base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          while (base64.length % 4) base64 += "=";
+          var json = atob(base64);
+          return JSON.parse(json);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function resolveDisplayUserFromToken(token) {
+        var payload = decodeJwtPayload(token);
+        if (!payload || typeof payload !== "object") return "";
+        return String(
+          payload.nombreCompleto ||
+            payload.usuario ||
+            payload.nombre ||
+            payload.sub ||
+            ""
+        ).trim();
+      }
+
       async function ensureReachableApiBase() {
         var current = apiBaseUrl();
         if (current !== "/api") return;
@@ -160,7 +185,8 @@
             }
             deps.forEach(function (dep) {
               var option = document.createElement("option");
-              option.value = String(dep.nombre || "").trim();
+              option.value = String(dep.id || "").trim();
+              option.dataset.depNombre = String(dep.nombre || "").trim();
               option.textContent = dep.nombre + " (ID " + dep.id + ")";
               depEl.appendChild(option);
             });
@@ -179,19 +205,58 @@
       apiEl.addEventListener("input", scheduleCargarDependencias);
       ensureReachableApiBase().then(cargarDependencias);
 
-      function abrirNumerador() {
+      async function abrirNumerador() {
         var api = apiBaseUrl();
         var token = tokenEl.value.trim();
-        var dependencia = depEl.value.trim();
+        var selected = depEl.options[depEl.selectedIndex] || null;
+        var dependenciaId = Number(depEl.value);
+        var dependenciaNombre = selected
+          ? String(selected.dataset.depNombre || selected.textContent || "").trim()
+          : "";
         if (!token) {
           window.alert("Pegá un JWT de /api/auth/login o copiá numerador_token desde el navegador.");
           return;
         }
+        var usuarioDisplay = resolveDisplayUserFromToken(token) || "Usuario";
+        if (Number.isInteger(dependenciaId) && dependenciaId > 0) {
+          try {
+            var switchRes = await fetch(api + "/auth/switch-dependencia", {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + token,
+              },
+              body: JSON.stringify({ dependenciaId: dependenciaId }),
+              credentials: "include",
+            });
+            var switchData = await switchRes.json().catch(function () {
+              return {};
+            });
+            if (!switchRes.ok) {
+              throw new Error(
+                (switchData && switchData.message) ||
+                  "No se pudo cambiar a la dependencia seleccionada"
+              );
+            }
+            if (switchData && switchData.token) {
+              token = String(switchData.token);
+              tokenEl.value = token;
+              usuarioDisplay = resolveDisplayUserFromToken(token) || usuarioDisplay;
+            }
+            if (switchData && switchData.user && switchData.user.dependencia) {
+              dependenciaNombre = String(switchData.user.dependencia).trim();
+            }
+          } catch (err) {
+            window.alert(err.message || "No se pudo aplicar la dependencia seleccionada");
+            return;
+          }
+        }
         NumeradorEmbed.open({
           apiBaseUrl: api,
           accessToken: token,
-          usuario: "Ejemplo, Usuario",
-          dependencia: dependencia || "Dependencia de prueba",
+          usuario: usuarioDisplay,
+          dependencia: dependenciaNombre || "Dependencia de prueba",
           expediente: "1/2026-1",
           onSuccess: function (res) {
             console.log("Registro creado:", res);

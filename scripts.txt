@@ -1,4 +1,16 @@
+# 1) Levantar limpio
 docker compose down --remove-orphans
-docker compose build --no-cache
-docker compose up -d
+docker compose up -d --build
 docker compose ps
+
+# 2) Ver estado backend
+docker compose logs backend --tail=200
+
+# 3) Probar conectividad externa desde backend (AD + SQL/SIGI)
+docker exec numerador-backend sh -lc "nc -zvw5 justiciachaco.gov.ar 389; nc -zvw5 SIGI-INTERIOR 1433; nc -zvw5 SQL03.justiciachaco.gov.ar 1433"
+
+# 4) Reiniciar solo backend tras cambios en .env
+docker compose up -d --build backend
+
+# 5) Bajar todo
+docker compose down
