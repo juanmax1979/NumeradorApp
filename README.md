@@ -76,7 +76,9 @@ Frontend por defecto: `http://localhost:5173`
 
 Esto levanta frontend, backend y módulo de integración conectados por una red Docker (`numerador-network`):
 
-1. Crear `backend/.env` en base a `backend/.env.example`.
+1. Mantener dos archivos de entorno:
+   - `backend/.env` para desarrollo local (`npm run dev`).
+   - `backend/.env.docker` para `docker compose` (si la clave tiene `$`, escaparla como `$$`).
 2. Si SQL Server corre fuera de Docker en tu PC, usar:
    - `SQLSERVER_HOST=host.docker.internal`
    - `SIGI_SQLSERVER_HOST=host.docker.internal`

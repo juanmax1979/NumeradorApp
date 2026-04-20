@@ -4,6 +4,7 @@ build/
 
 .env
 backend/.env
+backend/.env.docker
 frontend/.env
 Mobile/.env
 
