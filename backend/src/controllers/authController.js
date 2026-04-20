@@ -100,7 +100,15 @@ async function login(req, res, next) {
     }
 
     if (isActiveDirectoryAuthEnabled()) {
-      const adResult = await authenticateAgainstActiveDirectory(usuario, password);
+      let adResult;
+      try {
+        adResult = await authenticateAgainstActiveDirectory(usuario, password);
+      } catch (adError) {
+        return res.status(503).json({
+          message: "No se pudo contactar Active Directory. Intente nuevamente.",
+          detail: adError?.message || "AD unavailable",
+        });
+      }
       if (!adResult.ok) {
         return res.status(401).json({ message: "Credenciales inválidas" });
       }

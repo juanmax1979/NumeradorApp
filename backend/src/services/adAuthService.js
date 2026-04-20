@@ -71,7 +71,14 @@ async function authenticateAgainstActiveDirectory(username, password) {
     String(process.env.AD_USER_FILTER || "(sAMAccountName={{username}})").trim();
   const escapedUsername = escapeLdapFilter(username);
   const userFilter = userFilterTemplate.replace(/\{\{\s*username\s*\}\}/gi, escapedUsername);
-  const client = new Client({ url });
+  const connectTimeout = Number(process.env.AD_CONNECT_TIMEOUT_MS || 5000);
+  const operationTimeout = Number(process.env.AD_TIMEOUT_MS || 10000);
+  const client = new Client({
+    url,
+    connectTimeout,
+    timeout: operationTimeout,
+    idleTimeout: operationTimeout,
+  });
 
   try {
     if (bindDn) {

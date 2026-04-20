@@ -72,6 +72,25 @@ API base por defecto: `http://localhost:4000/api`
 
 Frontend por defecto: `http://localhost:5173`
 
+## 4) Docker (frontend + backend en una red)
+
+Esto levanta frontend, backend y módulo de integración conectados por una red Docker (`numerador-network`):
+
+1. Crear `backend/.env` en base a `backend/.env.example`.
+2. Si SQL Server corre fuera de Docker en tu PC, usar:
+   - `SQLSERVER_HOST=host.docker.internal`
+   - `SIGI_SQLSERVER_HOST=host.docker.internal`
+3. Desde la raiz del repo ejecutar:
+   - `docker compose up --build -d`
+4. Accesos:
+   - Frontend: `http://localhost:5173`
+   - Backend: `http://localhost:4000`
+   - Integración embebida (demo): `http://localhost:5174`
+   - En la demo de integración, la URL API por defecto es `/api` (same-origin por proxy interno de Docker).
+   - Si necesitás apuntar a otro backend, podés cambiarla desde el campo "URL base del API".
+5. Para detener:
+   - `docker compose down`
+
 ## Endpoints principales
 
 - `POST /api/auth/login`

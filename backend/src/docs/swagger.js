@@ -1,7 +1,7 @@
 const swaggerJSDoc = require("swagger-jsdoc");
 
 const PORT = Number(process.env.PORT || 4000);
-const BASE_URL = process.env.BACKEND_PUBLIC_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BACKEND_PUBLIC_URL || "/";
 
 const tipoExpediente = {
   type: "string",
