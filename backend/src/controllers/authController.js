@@ -17,6 +17,20 @@ const {
   getAllowedDependenciaIdsForDni,
 } = require("./sigiController");
 
+function mapSessionUser(user) {
+  return {
+    nombre: user.nombre,
+    usuario: user.usuario || user.nombre,
+    nombreCompleto: user.nombre_completo || user.nombre,
+    dni: user.dni || null,
+    rol: user.rol,
+    dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
+    dependenciaId: Number(user.dependencia_id),
+    fuero: String(user.fuero || "PENAL").trim().toUpperCase(),
+    sistemaOrigen: String(user.sistema_origen || "SIGI").trim().toUpperCase(),
+  };
+}
+
 function refreshCookieOptions() {
   const secure = String(process.env.COOKIE_SECURE || "false") === "true";
   const days = Number(process.env.JWT_REFRESH_EXPIRES_DAYS || 7);
@@ -128,7 +142,9 @@ async function login(req, res, next) {
            u.rol,
            u.dependencia,
            u.dependencia_id,
-           d.nombre AS dependencia_nombre
+           d.nombre AS dependencia_nombre,
+           d.fuero,
+           d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
@@ -157,7 +173,9 @@ async function login(req, res, next) {
              u.rol,
              u.dependencia,
              u.dependencia_id,
-             d.nombre AS dependencia_nombre
+             d.nombre AS dependencia_nombre,
+             d.fuero,
+             d.sistema_origen
            FROM dbo.usuarios u
            LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
            WHERE u.nombre = @usuario OR u.usuario = @usuario`,
@@ -183,7 +201,9 @@ async function login(req, res, next) {
            u.rol,
            u.dependencia,
            u.dependencia_id,
-           d.nombre AS dependencia_nombre
+           d.nombre AS dependencia_nombre,
+           d.fuero,
+           d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
@@ -222,15 +242,7 @@ async function login(req, res, next) {
 
       return res.json({
         token,
-        user: {
-          nombre: user.nombre,
-          usuario: user.usuario || user.nombre,
-          nombreCompleto: user.nombre_completo || user.nombre,
-          dni: user.dni || null,
-          rol: user.rol,
-          dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
-          dependenciaId: Number(user.dependencia_id),
-        },
+        user: mapSessionUser(user),
       });
     } else {
       const userRs = await runQuery(
@@ -243,7 +255,9 @@ async function login(req, res, next) {
            u.rol,
            u.dependencia,
            u.dependencia_id,
-           d.nombre AS dependencia_nombre
+           d.nombre AS dependencia_nombre,
+           d.fuero,
+           d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
@@ -289,15 +303,7 @@ async function login(req, res, next) {
 
       return res.json({
         token,
-        user: {
-          nombre: user.nombre,
-          usuario: user.usuario || user.nombre,
-          nombreCompleto: user.nombre_completo || user.nombre,
-          dni: user.dni || null,
-          rol: user.rol,
-          dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
-          dependenciaId: Number(user.dependencia_id),
-        },
+        user: mapSessionUser(user),
       });
     }
   } catch (error) {
@@ -370,7 +376,9 @@ async function switchDependencia(req, res, next) {
     let allowedIds = [];
     if (dniInt != null) {
       try {
-        allowedIds = await getAllowedDependenciaIdsForDni(dniInt);
+        allowedIds = await getAllowedDependenciaIdsForDni(dniInt, {
+          dependenciaIdActual: req.user?.dependenciaId,
+        });
       } catch {
         return res.status(503).json({
           message: "No se pudo consultar SIGI para validar dependencias. Intente más tarde.",
@@ -417,7 +425,9 @@ async function switchDependencia(req, res, next) {
          u.rol,
          u.dependencia,
          u.dependencia_id,
-         d.nombre AS dependencia_nombre
+         d.nombre AS dependencia_nombre,
+         d.fuero,
+         d.sistema_origen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
        WHERE u.nombre = @nombre OR u.usuario = @nombre`,
@@ -431,15 +441,7 @@ async function switchDependencia(req, res, next) {
     const token = signAccessToken(user);
     return res.json({
       token,
-      user: {
-        nombre: user.nombre,
-        usuario: user.usuario || user.nombre,
-        nombreCompleto: user.nombre_completo || user.nombre,
-        dni: user.dni || null,
-        rol: user.rol,
-        dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
-        dependenciaId: Number(user.dependencia_id),
-      },
+      user: mapSessionUser(user),
     });
   } catch (error) {
     return next(error);
@@ -468,7 +470,9 @@ async function refresh(req, res, next) {
          u.rol,
          u.dependencia,
          u.dependencia_id,
-         d.nombre AS dependencia_nombre
+         d.nombre AS dependencia_nombre,
+         d.fuero,
+         d.sistema_origen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
        WHERE u.nombre = @usuario OR u.usuario = @usuario`,
@@ -484,15 +488,7 @@ async function refresh(req, res, next) {
     const token = signAccessToken(user);
     return res.json({
       token,
-      user: {
-        nombre: user.nombre,
-        usuario: user.usuario || user.nombre,
-        nombreCompleto: user.nombre_completo || user.nombre,
-        dni: user.dni || null,
-        rol: user.rol,
-        dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
-        dependenciaId: Number(user.dependencia_id),
-      },
+      user: mapSessionUser(user),
     });
   } catch (error) {
     return next(error);

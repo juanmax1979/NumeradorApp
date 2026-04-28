@@ -42,6 +42,35 @@ async function bootstrap() {
       AND COL_LENGTH('dbo.dependencias', 'cod_dep_sigi') IS NULL
       ALTER TABLE dbo.dependencias ADD cod_dep_sigi NVARCHAR(50) NULL;
   `);
+  await runQuery(`
+    IF OBJECT_ID('dbo.dependencias', 'U') IS NOT NULL
+      AND COL_LENGTH('dbo.dependencias', 'fuero') IS NULL
+      ALTER TABLE dbo.dependencias ADD fuero NVARCHAR(50) NULL;
+
+    IF OBJECT_ID('dbo.dependencias', 'U') IS NOT NULL
+      AND COL_LENGTH('dbo.dependencias', 'sistema_origen') IS NULL
+      ALTER TABLE dbo.dependencias ADD sistema_origen NVARCHAR(50) NULL;
+
+    IF OBJECT_ID('dbo.dependencias', 'U') IS NOT NULL
+      AND COL_LENGTH('dbo.dependencias', 'cod_dep_externo') IS NULL
+      ALTER TABLE dbo.dependencias ADD cod_dep_externo NVARCHAR(120) NULL;
+  `);
+  await runQuery(`
+    IF OBJECT_ID('dbo.dependencias', 'U') IS NOT NULL
+    BEGIN
+      UPDATE dbo.dependencias
+      SET fuero = ISNULL(NULLIF(LTRIM(RTRIM(fuero)), ''), 'PENAL');
+
+      UPDATE dbo.dependencias
+      SET sistema_origen = ISNULL(NULLIF(LTRIM(RTRIM(sistema_origen)), ''), 'SIGI');
+
+      UPDATE dbo.dependencias
+      SET cod_dep_externo = LTRIM(RTRIM(cod_dep_sigi))
+      WHERE (cod_dep_externo IS NULL OR LTRIM(RTRIM(cod_dep_externo)) = '')
+        AND cod_dep_sigi IS NOT NULL
+        AND LTRIM(RTRIM(cod_dep_sigi)) <> '';
+    END
+  `);
 
   // Compatibilidad con instalaciones previas (texto)
   await runQuery(`

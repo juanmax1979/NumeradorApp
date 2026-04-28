@@ -12,21 +12,64 @@ BEGIN
     CREATE TABLE dbo.dependencias (
         id INT IDENTITY(1,1) PRIMARY KEY,
         nombre NVARCHAR(150) NOT NULL UNIQUE,
-        activa BIT NOT NULL DEFAULT 1
+        activa BIT NOT NULL DEFAULT 1,
+        fuero NVARCHAR(50) NOT NULL DEFAULT 'PENAL',
+        sistema_origen NVARCHAR(50) NOT NULL DEFAULT 'SIGI',
+        cod_dep_sigi NVARCHAR(50) NULL,
+        cod_dep_externo NVARCHAR(120) NULL
     );
 END;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.dependencias WHERE nombre = 'GENERAL')
 BEGIN
-    INSERT INTO dbo.dependencias (nombre, activa) VALUES ('GENERAL', 1);
+    INSERT INTO dbo.dependencias (nombre, activa, fuero, sistema_origen) VALUES ('GENERAL', 1, 'PENAL', 'SIGI');
 END;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.dependencias WHERE nombre = 'Juzgado Correccional - Charata')
 BEGIN
-    INSERT INTO dbo.dependencias (nombre, activa) VALUES ('Juzgado Correccional - Charata', 1);
+    INSERT INTO dbo.dependencias (nombre, activa, fuero, sistema_origen) VALUES ('Juzgado Correccional - Charata', 1, 'PENAL', 'SIGI');
 END;
+GO
+
+IF COL_LENGTH('dbo.dependencias', 'fuero') IS NULL
+BEGIN
+    ALTER TABLE dbo.dependencias ADD fuero NVARCHAR(50) NULL;
+END;
+GO
+
+IF COL_LENGTH('dbo.dependencias', 'sistema_origen') IS NULL
+BEGIN
+    ALTER TABLE dbo.dependencias ADD sistema_origen NVARCHAR(50) NULL;
+END;
+GO
+
+IF COL_LENGTH('dbo.dependencias', 'cod_dep_sigi') IS NULL
+BEGIN
+    ALTER TABLE dbo.dependencias ADD cod_dep_sigi NVARCHAR(50) NULL;
+END;
+GO
+
+IF COL_LENGTH('dbo.dependencias', 'cod_dep_externo') IS NULL
+BEGIN
+    ALTER TABLE dbo.dependencias ADD cod_dep_externo NVARCHAR(120) NULL;
+END;
+GO
+
+UPDATE dbo.dependencias
+SET fuero = ISNULL(NULLIF(LTRIM(RTRIM(fuero)), ''), 'PENAL');
+GO
+
+UPDATE dbo.dependencias
+SET sistema_origen = ISNULL(NULLIF(LTRIM(RTRIM(sistema_origen)), ''), 'SIGI');
+GO
+
+UPDATE dbo.dependencias
+SET cod_dep_externo = LTRIM(RTRIM(cod_dep_sigi))
+WHERE (cod_dep_externo IS NULL OR LTRIM(RTRIM(cod_dep_externo)) = '')
+  AND cod_dep_sigi IS NOT NULL
+  AND LTRIM(RTRIM(cod_dep_sigi)) <> '';
 GO
 
 IF OBJECT_ID('dbo.registros', 'U') IS NULL

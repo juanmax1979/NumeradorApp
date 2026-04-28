@@ -11,7 +11,9 @@ async function listUsers(req, res, next) {
          u.dni,
          u.rol,
          u.dependencia_id AS dependenciaId,
-         d.nombre AS dependencia
+         d.nombre AS dependencia,
+         d.fuero AS fuero,
+         d.sistema_origen AS sistemaOrigen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
        ORDER BY rol, nombre`,

@@ -24,7 +24,10 @@ router.get("/dependencias", authRequired, async (req, res, next) => {
   try {
     const rs = await runQuery(
       `SELECT id, nombre, activa,
-              cod_dep_sigi AS codDepSigi
+              fuero,
+              sistema_origen AS sistemaOrigen,
+              cod_dep_sigi AS codDepSigi,
+              COALESCE(NULLIF(LTRIM(RTRIM(cod_dep_externo)), ''), cod_dep_sigi) AS codDepExterno
        FROM dbo.dependencias
        WHERE activa = 1
        ORDER BY nombre`

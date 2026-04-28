@@ -1,8 +1,38 @@
 const { sql, executeSigiProcedure } = require("../config/sigiDb");
 const { runQuery } = require("../config/db");
+const { FUEROS, SISTEMAS, normalizeFuero, normalizeSistemaOrigen } = require("../config/fueros");
 
 const PROC_USUARIO = "procNumeradorDatosUsuarioSIGI_DepsCircNomyApe";
 const PROC_EXPEDIENTE = "procNumeradorDatosExpteCaratProcDepRadic";
+
+async function getDependenciaContextById(dependenciaId) {
+  const id = Number(dependenciaId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { fuero: FUEROS.PENAL, sistemaOrigen: SISTEMAS.SIGI };
+  }
+  const rs = await runQuery(
+    `SELECT fuero, sistema_origen
+     FROM dbo.dependencias
+     WHERE id = @id`,
+    { id }
+  );
+  const row = rs.recordset[0] || {};
+  return {
+    fuero: normalizeFuero(row.fuero || FUEROS.PENAL),
+    sistemaOrigen: normalizeSistemaOrigen(row.sistema_origen || SISTEMAS.SIGI),
+  };
+}
+
+async function getRequestIntegrationContext(req) {
+  const depId = req.user?.dependenciaId;
+  const dbCtx = await getDependenciaContextById(depId);
+  return {
+    fuero: normalizeFuero(req.user?.fuero || dbCtx.fuero || FUEROS.PENAL),
+    sistemaOrigen: normalizeSistemaOrigen(
+      req.user?.sistemaOrigen || dbCtx.sistemaOrigen || SISTEMAS.SIGI
+    ),
+  };
+}
 
 function unwrapResult(procedureName, input, result) {
   return {
@@ -168,16 +198,34 @@ function collectDependenciaNamesFromUsuarioSigiResult(result) {
 /**
  * IDs en dbo.dependencias cuyo cod_dep_sigi coincide con algún COD_DEP devuelto por el SP usuario SIGI.
  */
-async function getAllowedDependenciaIdsForDni(dniInt) {
+async function getAllowedDependenciaIdsForDni(dniInt, options = {}) {
   const result = await executeSigiProcedure(PROC_USUARIO, sqlParamsUsuarioSigi(dniInt));
   const allowed = collectCodDepsFromUsuarioSigiResult(result);
   const allowedNames = collectDependenciaNamesFromUsuarioSigiResult(result);
   if (allowed.size === 0 && allowedNames.size === 0) return [];
 
+  const targetFuero = options?.fuero ? normalizeFuero(options.fuero) : null;
+  const targetSistema = options?.sistemaOrigen
+    ? normalizeSistemaOrigen(options.sistemaOrigen)
+    : null;
+
+  let inferredCtx = null;
+  if ((!targetFuero || !targetSistema) && options?.dependenciaIdActual) {
+    inferredCtx = await getDependenciaContextById(options.dependenciaIdActual);
+  }
+  const finalFuero = targetFuero || inferredCtx?.fuero || FUEROS.PENAL;
+  const finalSistema = targetSistema || inferredCtx?.sistemaOrigen || SISTEMAS.SIGI;
+
   const rs = await runQuery(
-    `SELECT id, cod_dep_sigi AS cod
+    `SELECT id,
+            COALESCE(NULLIF(LTRIM(RTRIM(cod_dep_externo)), ''), cod_dep_sigi) AS cod
      FROM dbo.dependencias
-     WHERE activa = 1 AND cod_dep_sigi IS NOT NULL AND LTRIM(RTRIM(cod_dep_sigi)) <> ''`
+     WHERE activa = 1
+       AND fuero = @fuero
+       AND sistema_origen = @sistema
+       AND COALESCE(NULLIF(LTRIM(RTRIM(cod_dep_externo)), ''), cod_dep_sigi) IS NOT NULL
+       AND LTRIM(RTRIM(COALESCE(NULLIF(cod_dep_externo, ''), cod_dep_sigi))) <> ''`,
+    { fuero: finalFuero, sistema: finalSistema }
   );
 
   const ids = [];
@@ -208,7 +256,10 @@ async function getAllowedDependenciaIdsForDni(dniInt) {
     const namesRs = await runQuery(
       `SELECT id, nombre
        FROM dbo.dependencias
-       WHERE activa = 1`
+       WHERE activa = 1
+         AND fuero = @fuero
+         AND sistema_origen = @sistema`,
+      { fuero: finalFuero, sistema: finalSistema }
     );
     for (const row of namesRs.recordset) {
       const nombre = String(row.nombre || "").trim();
@@ -229,7 +280,7 @@ async function mergeCodDepsFromNumeradorDependencia(allowed, dependenciaId) {
   const id = Number(dependenciaId);
   if (!Number.isInteger(id) || id <= 0) return;
   const rs = await runQuery(
-    `SELECT cod_dep_sigi AS c
+    `SELECT COALESCE(NULLIF(LTRIM(RTRIM(cod_dep_externo)), ''), cod_dep_sigi) AS c
      FROM dbo.dependencias
      WHERE id = @id AND activa = 1`,
     { id }
@@ -375,6 +426,13 @@ async function resolveDniIntForRequest(req) {
 
 async function runSigiUsuarioPorDni(req, res, next) {
   try {
+    const ctx = await getRequestIntegrationContext(req);
+    if (ctx.sistemaOrigen !== SISTEMAS.SIGI) {
+      return res.status(409).json({
+        message: `La dependencia activa pertenece al fuero ${ctx.fuero} y usa ${ctx.sistemaOrigen}. Este endpoint solo aplica a SIGI.`,
+      });
+    }
+
     const raw = req.body?.dni ?? req.body?.dniUsuarioSigi;
     const dniStr =
       typeof raw === "number" && Number.isInteger(raw)
@@ -410,6 +468,13 @@ async function runSigiUsuarioPorDni(req, res, next) {
 
 async function runSigiExpediente(req, res, next) {
   try {
+    const ctx = await getRequestIntegrationContext(req);
+    if (ctx.sistemaOrigen !== SISTEMAS.SIGI) {
+      return res.status(409).json({
+        message: `La dependencia activa pertenece al fuero ${ctx.fuero} y usa ${ctx.sistemaOrigen}. Este endpoint solo aplica a SIGI.`,
+      });
+    }
+
     const raw = req.body?.expediente ?? req.body?.NroExpediente;
     const nro = String(raw ?? "").trim();
     if (nro.length < 1 || nro.length > 50) {
@@ -470,10 +535,22 @@ async function runSigiExpediente(req, res, next) {
 /** Para el front: mismos tokens que se usan al filtrar /sigi/expediente (usuario SIGI + cod_dep_sigi). */
 async function getSigiAllowedCodDepTokens(req, res, next) {
   try {
-    const ctx = await buildSessionSigiFilterContext(req);
+    const integrationCtx = await getRequestIntegrationContext(req);
+    if (integrationCtx.sistemaOrigen !== SISTEMAS.SIGI) {
+      return res.json({
+        tokens: [],
+        dependenciaNombre: "",
+        fuero: integrationCtx.fuero,
+        sistemaOrigen: integrationCtx.sistemaOrigen,
+      });
+    }
+
+    const sigiCtx = await buildSessionSigiFilterContext(req);
     return res.json({
-      tokens: [...ctx.allowed].sort(),
-      dependenciaNombre: ctx.dependenciaNombre || "",
+      tokens: [...sigiCtx.allowed].sort(),
+      dependenciaNombre: sigiCtx.dependenciaNombre || "",
+      fuero: integrationCtx.fuero,
+      sistemaOrigen: integrationCtx.sistemaOrigen,
     });
   } catch (error) {
     return next(error);

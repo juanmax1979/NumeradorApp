@@ -19,6 +19,8 @@ function signAccessToken(user) {
     rol: user.rol,
     dependencia: user.dependencia,
     dependenciaId: Number(user.dependencia_id),
+    fuero: String(user.fuero || "PENAL").trim().toUpperCase(),
+    sistemaOrigen: String(user.sistema_origen || "SIGI").trim().toUpperCase(),
   };
   const dni = dniForJwtPayload(user);
   if (dni !== undefined) payload.dni = dni;

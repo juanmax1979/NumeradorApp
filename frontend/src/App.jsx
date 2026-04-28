@@ -434,6 +434,8 @@ function App() {
   const [stats, setStats] = useState({ totals: [], monthly: [], ranking: [], auditLog: [] });
   const displayName = user?.nombreCompleto || user?.nombre || "-";
   const displayUser = user?.usuario || user?.nombre || "-";
+  const activeFuero = String(user?.fuero || "PENAL").trim().toUpperCase();
+  const activeSistemaOrigen = String(user?.sistemaOrigen || "SIGI").trim().toUpperCase();
   /** Opciones de dependencia según SIGI + cod_dep_sigi en Numerador */
   const [sigiDepOptions, setSigiDepOptions] = useState([]);
   /** null = sin sesión; loading | choose | ready */
@@ -493,6 +495,15 @@ function App() {
     if (!token || !user) {
       setSigiDepOptions([]);
       setMultiDepGate(null);
+      setDepPickerChoice(null);
+      return;
+    }
+    if (activeSistemaOrigen !== "SIGI") {
+      setSigiDepOptions([]);
+      setMetaDependencias([]);
+      setSigiAllowedCodDepTokens([]);
+      setSigiDependenciaNombre("");
+      setMultiDepGate("ready");
       setDepPickerChoice(null);
       return;
     }
@@ -557,7 +568,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [user?.dni, user?.nombre]);
+  }, [user?.dni, user?.nombre, activeSistemaOrigen]);
 
   const dataSessionReady = Boolean(token && user && multiDepGate === "ready");
 
@@ -568,6 +579,11 @@ function App() {
 
   useEffect(() => {
     if (!dataSessionReady || !user) return;
+    if (activeSistemaOrigen !== "SIGI") {
+      setSigiAllowedCodDepTokens([]);
+      setSigiDependenciaNombre("");
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -588,7 +604,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [dataSessionReady, user?.dependenciaId]);
+  }, [dataSessionReady, user?.dependenciaId, activeSistemaOrigen]);
 
   useEffect(() => {
     if (!dataSessionReady) return;
@@ -1004,19 +1020,30 @@ function App() {
           <div className="topbar-user">
             <strong>{displayName}</strong> ({displayUser}) — rol {user?.rol}
             <span className="topbar-meta-sep"> · </span>
+            <span>Fuero: <em>{activeFuero}</em></span>
+            <span className="topbar-meta-sep"> · </span>
             <span
               className="topbar-dependencia"
-              title="SIGI vía DNI (por defecto POST /api/sigi/sp1). Configurá VITE_SIGI_USUARIO_ENDPOINT si usás otra ruta."
+              title="Integración por fuero/sistema según la dependencia activa del usuario."
             >
-              Dep. activa:{" "}
-              {!user?.dni ? (
+              {activeSistemaOrigen !== "SIGI" ? (
+                <span className="topbar-muted">Sistema: {activeSistemaOrigen}</span>
+              ) : !user?.dni ? (
+                <>Dep. activa:{" "}
                 <span className="topbar-muted">sin DNI en el perfil</span>
+                </>
               ) : sigiLinePending ? (
+                <>Dep. activa:{" "}
                 <span className="topbar-muted">consultando SIGI…</span>
+                </>
               ) : sigiDepDisplayLabel ? (
+                <>Dep. activa:{" "}
                 <em>{sigiDepDisplayLabel}</em>
+                </>
               ) : (
+                <>Dep. activa:{" "}
                 <span className="topbar-muted">sin datos SIGI</span>
+                </>
               )}
             </span>
             {sigiDepOptions.length >= 2 && multiDepGate === "ready" && (
