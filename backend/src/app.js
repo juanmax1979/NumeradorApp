@@ -11,6 +11,7 @@ const statsRoutes = require("./routes/statsRoutes");
 const userRoutes = require("./routes/userRoutes");
 const metaRoutes = require("./routes/metaRoutes");
 const sigiRoutes = require("./routes/sigiRoutes");
+const systemIntegrationRoutes = require("./routes/systemIntegrationRoutes");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -51,6 +52,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/meta", metaRoutes);
 app.use("/api/sigi", sigiRoutes);
+app.use("/api/integraciones", systemIntegrationRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
