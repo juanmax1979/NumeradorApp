@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import api, { setAuthToken, setOnAuthFailure } from "./api";
 
@@ -96,9 +96,6 @@ function isValidExpediente(value) {
 }
 
 /** Toma el N° de expediente desde una fila SIGI o el valor consultado. */
-/** POST relativo a la base API; por defecto usuario SIGI por DNI (sp1). sp2 en backend es expediente. */
-const SIGI_USUARIO_API_PATH =
-  import.meta.env.VITE_SIGI_USUARIO_ENDPOINT || "/sigi/sp1";
 
 function sigiRowField(row, ...candidateKeys) {
   if (!row || typeof row !== "object") return "";
@@ -137,31 +134,19 @@ const SIGI_COD_DEP_CANDIDATES = [
   "ORG_COD_DEP",
 ];
 
-/** Alineado con modo "usuario" en backend (getCodDepFromRow). */
-const SIGI_USUARIO_COD_KEYS = SIGI_COD_DEP_CANDIDATES;
-
+/** Alinear "03500" con "3500"; códigos alfanuméricos (ej. MUIT) en mayúsculas (misma regla que el backend). */
 function expandCodDepVariants(token) {
   const s = String(token ?? "").trim();
   if (!s) return [];
-  const out = new Set([s]);
+  const out = new Set();
   if (/^\d+$/.test(s)) {
+    out.add(s);
     const n = parseInt(s, 10);
     if (!Number.isNaN(n)) out.add(String(n));
+  } else {
+    out.add(s.toUpperCase());
   }
   return [...out];
-}
-
-function getSigiUsuarioCodFromRow(row) {
-  if (!row || typeof row !== "object") return "";
-  const map = {};
-  for (const k of Object.keys(row)) {
-    map[String(k).toUpperCase()] = row[k];
-  }
-  for (const key of SIGI_USUARIO_COD_KEYS) {
-    const v = map[key];
-    if (v != null && String(v).trim() !== "") return String(v).trim();
-  }
-  return "";
 }
 
 function codTokensFromField(raw) {
@@ -172,38 +157,6 @@ function codTokensFromField(raw) {
     for (const v of expandCodDepVariants(p)) tokens.add(v);
   }
   return tokens;
-}
-
-function metaCodMatchesSigiRow(metaCodSigi, row) {
-  const rowCod = getSigiUsuarioCodFromRow(row);
-  if (!rowCod) return false;
-  const rowToks = codTokensFromField(rowCod);
-  if (rowToks.size === 0) return false;
-  for (const part of String(metaCodSigi ?? "").split(/[,;]+/)) {
-    const p = part.trim();
-    if (!p) continue;
-    for (const t of codTokensFromField(p)) {
-      if (rowToks.has(t)) return true;
-    }
-  }
-  return false;
-}
-
-function sigiDependenciaNombreFromRow(row) {
-  return sigiRowField(
-    row,
-    "NOMB_DEP",
-    "NOM_DEP",
-    "NOMBRE_DEP",
-    "DEPENDENCIA",
-    "DEPENDENCIA_NOMBRE"
-  );
-}
-
-function metaNameMatchesSigiRow(metaName, row) {
-  const sigiName = sigiDependenciaNombreFromRow(row);
-  if (!sigiName || !metaName) return false;
-  return dependenciaLabelsMatch(sigiName, metaName);
 }
 
 /** Misma lógica que backend getCodDepFromRow (incl. heurística expediente). */
@@ -311,44 +264,6 @@ function expedienteRowMatchesAllowedTokens(row, tokensArray, dependenciaNombre) 
     if (desc && dependenciaLabelsMatch(desc, depNom)) return true;
   }
   return false;
-}
-
-function sigiDepLabelFromRow(row) {
-  const nombDep = sigiRowField(row, "NOMB_DEP");
-  const codDep = sigiRowField(row, "COD_DEP");
-  const descCirc = sigiRowField(row, "DESC_CIRC_DEP", "DESC_CIRCDEP");
-  const titu = sigiRowField(row, "TITU_SUBROG", "TITU_SUBROGA");
-  const main = nombDep || codDep;
-  if (!main) return codDep || "Dependencia";
-  const parts = [main];
-  if (descCirc) parts.push(descCirc);
-  let out = parts.join(" · ");
-  if (titu && String(titu).toUpperCase().trim() !== "TITULAR") {
-    out += ` (${titu})`;
-  }
-  return out;
-}
-
-/** Filas del SP usuario SIGI cruzadas con dbo.dependencias.cod_dep_sigi (meta). */
-function buildMappedSigiDependencias(recordset, metaDeps) {
-  if (!Array.isArray(recordset) || recordset.length === 0) return [];
-  const list = Array.isArray(metaDeps) ? metaDeps : [];
-  const byId = new Map();
-  for (const row of recordset) {
-    for (const m of list) {
-      if (!m || !m.id || m.activa === false || m.activa === 0) continue;
-      const byCod = metaCodMatchesSigiRow(m.codDepSigi, row);
-      const byName = metaNameMatchesSigiRow(m.nombre, row);
-      if (!byCod && !byName) continue;
-      const id = Number(m.id);
-      const label = sigiDepLabelFromRow(row);
-      const prev = byId.get(id);
-      if (!prev || String(label).length > String(prev.label || "").length) {
-        byId.set(id, { dependenciaId: id, label });
-      }
-    }
-  }
-  return Array.from(byId.values()).sort((a, b) => a.dependenciaId - b.dependenciaId);
 }
 
 function expedienteFromSigiRow(row, fallbackQueried) {
@@ -482,6 +397,70 @@ function App() {
     return data;
   }
 
+  /**
+   * Lista dependencias habilitadas según SIGI (GET /sigi/mis-dependencias = SP usuario + mismo criterio que switch-dependencia).
+   * `silent`: no pone la pantalla en "loading" (p. ej. botón Refrescar).
+   */
+  const syncSigiDependenciasWithServer = useCallback(async (sessionUser, opts = {}) => {
+    const silent = Boolean(opts.silent);
+    const isCancelled =
+      typeof opts.isCancelled === "function" ? opts.isCancelled : () => false;
+
+    const sistema = String(sessionUser?.sistemaOrigen || "SIGI").trim().toUpperCase();
+    if (sistema !== "SIGI") return;
+
+    const dniRaw = sessionUser?.dni;
+    const dniStr =
+      typeof dniRaw === "number" && Number.isInteger(dniRaw)
+        ? String(dniRaw)
+        : String(dniRaw ?? "").replace(/\D/g, "");
+    if (!/^\d{7,8}$/.test(dniStr)) return;
+
+    if (!silent) setMultiDepGate("loading");
+
+    try {
+      const { data } = await api.get("/sigi/mis-dependencias");
+      if (isCancelled()) return;
+
+      const options = Array.isArray(data?.dependencias) ? data.dependencias : [];
+      setSigiDepOptions(options);
+
+      const currentId = Number(sessionUser?.dependenciaId);
+
+      if (options.length >= 2) {
+        const inList = options.some((o) => o.dependenciaId === currentId);
+        if (!isCancelled()) setMultiDepGate(inList ? "ready" : "choose");
+        return;
+      }
+      if (options.length === 1) {
+        const onlyId = options[0].dependenciaId;
+        if (onlyId !== currentId) {
+          try {
+            const { data } = await api.post("/auth/switch-dependencia", {
+              dependenciaId: onlyId,
+            });
+            if (isCancelled()) return;
+            setToken(data.token);
+            setUser(data.user);
+            localStorage.setItem("numerador_token", data.token);
+            localStorage.setItem("numerador_user", JSON.stringify(data.user));
+            setAuthToken(data.token);
+          } catch {
+            /* sigue con la dependencia ya asignada en el token */
+          }
+        }
+        if (!isCancelled()) setMultiDepGate("ready");
+        return;
+      }
+      if (!isCancelled()) setMultiDepGate("ready");
+    } catch {
+      if (!silent && !isCancelled()) {
+        setSigiDepOptions([]);
+        setMultiDepGate("ready");
+      }
+    }
+  }, []);
+
   useEffect(() => {
     setAuthToken(token);
   }, [token]);
@@ -518,57 +497,15 @@ function App() {
       setDepPickerChoice(null);
       return;
     }
-    setMultiDepGate("loading");
     let cancelled = false;
-    (async () => {
-      try {
-        const [sigiRes, metaRes] = await Promise.all([
-          api.post(SIGI_USUARIO_API_PATH, { dniUsuarioSigi: Number(dniStr) }),
-          api.get("/meta/dependencias"),
-        ]);
-        if (cancelled) return;
-        const recordset = sigiRes.data?.recordset || [];
-        const depsList = Array.isArray(metaRes.data) ? metaRes.data : [];
-        setMetaDependencias(depsList);
-        const options = buildMappedSigiDependencias(recordset, depsList);
-        setSigiDepOptions(options);
-        if (options.length >= 2) {
-          setMultiDepGate((prev) => (prev === "ready" ? "ready" : "choose"));
-          return;
-        }
-        if (options.length === 1) {
-          const onlyId = options[0].dependenciaId;
-          if (onlyId !== user.dependenciaId) {
-            try {
-              const { data } = await api.post("/auth/switch-dependencia", {
-                dependenciaId: onlyId,
-              });
-              if (!cancelled) {
-                setToken(data.token);
-                setUser(data.user);
-                localStorage.setItem("numerador_token", data.token);
-                localStorage.setItem("numerador_user", JSON.stringify(data.user));
-                setAuthToken(data.token);
-              }
-            } catch {
-              /* sigue con la dependencia ya asignada en el token */
-            }
-          }
-          if (!cancelled) setMultiDepGate("ready");
-          return;
-        }
-        if (!cancelled) setMultiDepGate("ready");
-      } catch {
-        if (!cancelled) {
-          setSigiDepOptions([]);
-          setMultiDepGate("ready");
-        }
-      }
-    })();
+    syncSigiDependenciasWithServer(user, {
+      silent: false,
+      isCancelled: () => cancelled,
+    });
     return () => {
       cancelled = true;
     };
-  }, [user?.dni, user?.nombre, activeSistemaOrigen]);
+  }, [token, user?.dni, user?.nombre, activeSistemaOrigen, syncSigiDependenciasWithServer]);
 
   const dataSessionReady = Boolean(token && user && multiDepGate === "ready");
 
@@ -614,7 +551,7 @@ function App() {
   }, [activeTab, dataSessionReady, user?.dependenciaId]);
 
   useEffect(() => {
-    if (multiDepGate !== "choose" || sigiDepOptions.length < 2) return;
+    if (multiDepGate !== "choose" || sigiDepOptions.length < 1) return;
     const inList = sigiDepOptions.some((o) => o.dependenciaId === user?.dependenciaId);
     setDepPickerChoice(inList ? user.dependenciaId : sigiDepOptions[0].dependenciaId);
   }, [multiDepGate, sigiDepOptions, user?.dependenciaId]);
@@ -908,6 +845,17 @@ function App() {
   }
 
   async function refreshCurrentView() {
+    const sys = String(user?.sistemaOrigen || "SIGI").trim().toUpperCase();
+    if (token && user && sys === "SIGI") {
+      const dniRaw = user.dni;
+      const dniStr =
+        typeof dniRaw === "number" && Number.isInteger(dniRaw)
+          ? String(dniRaw)
+          : String(dniRaw ?? "").replace(/\D/g, "");
+      if (/^\d{7,8}$/.test(dniStr)) {
+        await syncSigiDependenciasWithServer(user, { silent: true });
+      }
+    }
     if (TYPES.includes(activeTab)) {
       await loadTipoRows(activeTab, tipoSearch);
       await loadNextNumber(activeTab);
@@ -1046,7 +994,7 @@ function App() {
                 </>
               )}
             </span>
-            {sigiDepOptions.length >= 2 && multiDepGate === "ready" && (
+            {sigiDepOptions.length >= 1 && multiDepGate === "ready" && (
               <label className="topbar-actuar-dep">
                   Actuar en{" "}
                   <select

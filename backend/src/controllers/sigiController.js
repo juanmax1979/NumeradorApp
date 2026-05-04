@@ -119,14 +119,17 @@ function getCodDepFromRow(row, mode = "usuario") {
   return null;
 }
 
-/** Alinear "03500" con "3500" que suele venir distinto entre SPs / tipos. */
+/** Alinear "03500" con "3500"; códigos alfanuméricos (ej. MUIT) en mayúsculas para cruzar con BD/SIGI. */
 function expandCodDepVariants(token) {
   const s = String(token ?? "").trim();
   if (!s) return [];
-  const out = new Set([s]);
+  const out = new Set();
   if (/^\d+$/.test(s)) {
+    out.add(s);
     const n = parseInt(s, 10);
     if (!Number.isNaN(n)) out.add(String(n));
+  } else {
+    out.add(s.toUpperCase());
   }
   return [...out];
 }
@@ -557,10 +560,86 @@ async function getSigiAllowedCodDepTokens(req, res, next) {
   }
 }
 
+/**
+ * Dependencias del Numerador donde el usuario está habilitado según SIGI (SP usuario por DNI),
+ * mismo criterio que switch-dependencia y getAllowedDependenciaIdsForDni.
+ */
+async function getMisDependenciasSigi(req, res, next) {
+  try {
+    const ctx = await getRequestIntegrationContext(req);
+    if (ctx.sistemaOrigen !== SISTEMAS.SIGI) {
+      return res.json({
+        dependencias: [],
+        fuero: ctx.fuero,
+        sistemaOrigen: ctx.sistemaOrigen,
+      });
+    }
+
+    const dniInt = await resolveDniIntForRequest(req);
+    if (dniInt == null) {
+      return res.json({
+        dependencias: [],
+        aviso: "sin_dni",
+        fuero: ctx.fuero,
+        sistemaOrigen: ctx.sistemaOrigen,
+      });
+    }
+
+    let ids = [];
+    try {
+      ids = await getAllowedDependenciaIdsForDni(dniInt, {
+        dependenciaIdActual: req.user?.dependenciaId,
+      });
+    } catch {
+      return res.status(503).json({
+        message:
+          "No se pudo consultar SIGI para listar dependencias. Intente más tarde.",
+      });
+    }
+
+    if (!ids.length) {
+      return res.json({
+        dependencias: [],
+        fuero: ctx.fuero,
+        sistemaOrigen: ctx.sistemaOrigen,
+      });
+    }
+
+    const inputs = {};
+    const placeholders = ids.map((id, i) => {
+      const key = `id${i}`;
+      inputs[key] = id;
+      return `@${key}`;
+    });
+    const rs = await runQuery(
+      `SELECT id, LTRIM(RTRIM(nombre)) AS nombre
+       FROM dbo.dependencias
+       WHERE activa = 1 AND id IN (${placeholders.join(", ")})`,
+      inputs
+    );
+    const byId = new Map(
+      (rs.recordset || []).map((row) => [Number(row.id), String(row.nombre || "").trim()])
+    );
+    const dependencias = ids.map((id) => ({
+      dependenciaId: id,
+      label: byId.get(id) || `Dependencia ${id}`,
+    }));
+
+    return res.json({
+      dependencias,
+      fuero: ctx.fuero,
+      sistemaOrigen: ctx.sistemaOrigen,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   runSigiUsuarioPorDni,
   runSigiExpediente,
   getSigiAllowedCodDepTokens,
+  getMisDependenciasSigi,
   resolveDniIntForRequest,
   getAllowedDependenciaIdsForDni,
 };

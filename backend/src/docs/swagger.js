@@ -672,6 +672,44 @@ const options = {
         },
       },
 
+      "/api/sigi/mis-dependencias": {
+        get: {
+          tags: ["SIGI"],
+          summary:
+            "Dependencias del Numerador habilitadas para el usuario según SIGI (mismo SP / criterios que switch-dependencia)",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description:
+                "Lista de { dependenciaId, label } ordenada como en SIGI; label = nombre en dbo.dependencias",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      dependencias: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            dependenciaId: { type: "integer" },
+                            label: { type: "string" },
+                          },
+                        },
+                      },
+                      aviso: { type: "string", description: "p. ej. sin_dni" },
+                      fuero: { type: "string" },
+                      sistemaOrigen: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "No autenticado" },
+            503: { description: "SIGI no disponible" },
+          },
+        },
+      },
       "/api/sigi/allowed-cod-dep-tokens": {
         get: {
           tags: ["SIGI"],

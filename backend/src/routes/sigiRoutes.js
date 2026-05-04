@@ -4,12 +4,14 @@ const {
   runSigiUsuarioPorDni,
   runSigiExpediente,
   getSigiAllowedCodDepTokens,
+  getMisDependenciasSigi,
 } = require("../controllers/sigiController");
 
 const router = express.Router();
 
 router.use(authRequired);
 
+router.get("/mis-dependencias", getMisDependenciasSigi);
 router.get("/allowed-cod-dep-tokens", getSigiAllowedCodDepTokens);
 router.post("/usuario", runSigiUsuarioPorDni);
 router.post("/expediente", runSigiExpediente);

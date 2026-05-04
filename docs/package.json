@@ -1,0 +1,11 @@
+{
+  "name": "numerador-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pdf": "node generate-instructivo-pdf.mjs"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.0"
+  }
+}
