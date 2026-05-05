@@ -12,6 +12,7 @@ const TYPES = [
 const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS", "CATALOGO"];
 const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const CATALOGO_TIPOS_VISIBLES = ["OFICIO", "AUTO", "SENT_RELATORIA", "SENT_TRAMITE"];
 
 const MOTIVOS_ANULACION = [
   "Decreto no firmado",
@@ -373,6 +374,7 @@ function App() {
   const [sigiAllowedCodDepTokens, setSigiAllowedCodDepTokens] = useState([]);
   const [sigiDependenciaNombre, setSigiDependenciaNombre] = useState("");
   const [catalogo, setCatalogo] = useState([]);
+  const [catalogoTipoSeleccionadoId, setCatalogoTipoSeleccionadoId] = useState("");
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState("");
   const [newCategoriaByTipo, setNewCategoriaByTipo] = useState({});
@@ -616,7 +618,18 @@ function App() {
     setCatalogoError("");
     try {
       const { data } = await api.get("/meta/recaudos-catalogo");
-      setCatalogo(Array.isArray(data?.tipos) ? data.tipos : []);
+      const tipos = Array.isArray(data?.tipos) ? data.tipos : [];
+      setCatalogo(tipos);
+      setCatalogoTipoSeleccionadoId((prev) => {
+        const prevNum = Number(prev);
+        if (prev && tipos.some((t) => Number(t.id) === prevNum)) {
+          return String(prevNum);
+        }
+        const firstVisible = tipos.find((t) =>
+          CATALOGO_TIPOS_VISIBLES.includes(String(t.codigo || "").toUpperCase())
+        );
+        return firstVisible ? String(firstVisible.id) : "";
+      });
     } catch (error) {
       setCatalogoError(error.response?.data?.message || "No se pudo cargar el catálogo");
     } finally {
@@ -927,6 +940,15 @@ function App() {
     await api.put(`/meta/recaudos-catalogo/opciones/${opcion.id}`, { nombre: trimmed });
     await loadCatalogo();
     await loadCategorias();
+  }
+
+  function catalogoTipoLabel(tipo) {
+    const code = String(tipo?.codigo || "").toUpperCase();
+    if (code === "OFICIO") return "Oficios";
+    if (code === "AUTO") return "Autos";
+    if (code === "SENT_RELATORIA") return "Sentencia Relatoria";
+    if (code === "SENT_TRAMITE") return "Sentencia Definitiva";
+    return tipo?.nombre || code;
   }
 
   async function confirmDepPicker() {
@@ -1423,51 +1445,99 @@ function App() {
             <p>Administrá tipos, categorías y opciones del detalle desplegable.</p>
             {catalogoLoading && <p>Cargando catálogo...</p>}
             {catalogoError && <p className="error">{catalogoError}</p>}
-            {!catalogoLoading && catalogo.map((tipo) => (
-              <div key={tipo.id} className="catalogo-tipo">
-                <h3>{tipo.nombre} <small>({tipo.codigo})</small></h3>
-                <div className="form-row">
-                  <input
-                    placeholder="Nueva categoría"
-                    value={newCategoriaByTipo[tipo.id] || ""}
-                    onChange={(e) =>
-                      setNewCategoriaByTipo((prev) => ({ ...prev, [tipo.id]: e.target.value }))
-                    }
-                  />
-                  <button type="button" onClick={() => addCategoria(tipo.id)}>Agregar categoría</button>
-                </div>
-                {(tipo.categorias || []).map((cat) => (
-                  <div key={cat.id} className="catalogo-categoria">
-                    <div className="catalogo-row">
-                      <strong>{cat.nombre}</strong>
-                      <button type="button" className="secondary" onClick={() => editCategoria(cat)}>
-                        Editar categoría
-                      </button>
-                    </div>
-                    <div className="form-row">
-                      <input
-                        placeholder="Nueva opción"
-                        value={newOpcionByCategoria[cat.id] || ""}
-                        onChange={(e) =>
-                          setNewOpcionByCategoria((prev) => ({ ...prev, [cat.id]: e.target.value }))
-                        }
-                      />
-                      <button type="button" onClick={() => addOpcion(cat.id)}>Agregar opción</button>
-                    </div>
-                    <ul className="catalogo-opciones">
-                      {(cat.opciones || []).map((op) => (
-                        <li key={op.id}>
-                          <span>{op.nombre}</span>
-                          <button type="button" className="secondary" onClick={() => editOpcion(op)}>
-                            Editar
-                          </button>
-                        </li>
+            {!catalogoLoading && (() => {
+              const tiposVisibles = catalogo.filter((t) =>
+                CATALOGO_TIPOS_VISIBLES.includes(String(t.codigo || "").toUpperCase())
+              );
+              const tipoSeleccionado = tiposVisibles.find(
+                (t) => Number(t.id) === Number(catalogoTipoSeleccionadoId)
+              );
+
+              return (
+                <>
+                  <div className="form-row">
+                    <label htmlFor="catalogo-tipo-select"><strong>Tipo de recaudo:</strong></label>
+                    <select
+                      id="catalogo-tipo-select"
+                      value={catalogoTipoSeleccionadoId}
+                      onChange={(e) => setCatalogoTipoSeleccionadoId(e.target.value)}
+                    >
+                      {tiposVisibles.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {catalogoTipoLabel(t)}
+                        </option>
                       ))}
-                    </ul>
+                    </select>
                   </div>
-                ))}
-              </div>
-            ))}
+
+                  {tipoSeleccionado ? (
+                    <div className="catalogo-tipo">
+                      <h3>{catalogoTipoLabel(tipoSeleccionado)}</h3>
+                      <div className="form-row">
+                        <input
+                          placeholder="Nueva categoría"
+                          value={newCategoriaByTipo[tipoSeleccionado.id] || ""}
+                          onChange={(e) =>
+                            setNewCategoriaByTipo((prev) => ({
+                              ...prev,
+                              [tipoSeleccionado.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <button type="button" onClick={() => addCategoria(tipoSeleccionado.id)}>
+                          Agregar categoría
+                        </button>
+                      </div>
+                      {(tipoSeleccionado.categorias || []).map((cat) => (
+                        <div key={cat.id} className="catalogo-categoria">
+                          <div className="catalogo-row">
+                            <strong>{cat.nombre}</strong>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => editCategoria(cat)}
+                            >
+                              Editar categoría
+                            </button>
+                          </div>
+                          <div className="form-row">
+                            <input
+                              placeholder="Nueva opción"
+                              value={newOpcionByCategoria[cat.id] || ""}
+                              onChange={(e) =>
+                                setNewOpcionByCategoria((prev) => ({
+                                  ...prev,
+                                  [cat.id]: e.target.value,
+                                }))
+                              }
+                            />
+                            <button type="button" onClick={() => addOpcion(cat.id)}>
+                              Agregar opción
+                            </button>
+                          </div>
+                          <ul className="catalogo-opciones">
+                            {(cat.opciones || []).map((op) => (
+                              <li key={op.id}>
+                                <span>{op.nombre}</span>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => editOpcion(op)}
+                                >
+                                  Editar
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No hay tipos de recaudo cargados para administrar.</p>
+                  )}
+                </>
+              );
+            })()}
           </section>
         )}
         {activeTab === "CATALOGO" && user?.rol !== "admin" && (
@@ -1477,6 +1547,7 @@ function App() {
           </section>
         )}
 
+        {activeTab !== "CATALOGO" && (
         <section className="card">
           <h3>Registros</h3>
           <table>
@@ -1609,6 +1680,7 @@ function App() {
             </div>
           </div>
         </section>
+        )}
           </>
         )}
       </main>
