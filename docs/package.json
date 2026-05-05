@@ -6,6 +6,8 @@
     "pdf": "node generate-instructivo-pdf.mjs"
   },
   "dependencies": {
+    "docx": "^9.6.1",
+    "image-size": "^2.0.2",
     "pdfkit": "^0.15.0"
   }
 }
