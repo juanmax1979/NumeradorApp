@@ -13,6 +13,26 @@ function escapeLdapFilter(value) {
     .replace(/\0/g, "\\00");
 }
 
+function normalizeAdUsername(rawUsername) {
+  const raw = String(rawUsername || "").trim();
+  if (!raw) return { raw: "", samAccountName: "" };
+
+  // DOMAIN\usuario -> usuario
+  if (raw.includes("\\")) {
+    const parts = raw.split("\\");
+    const sam = String(parts[parts.length - 1] || "").trim();
+    return { raw, samAccountName: sam };
+  }
+
+  // usuario@dominio -> usuario
+  if (raw.includes("@")) {
+    const sam = String(raw.split("@")[0] || "").trim();
+    return { raw, samAccountName: sam };
+  }
+
+  return { raw, samAccountName: raw };
+}
+
 function isInvalidCredentialsError(error) {
   const text = `${error?.name || ""} ${error?.message || ""}`.toLowerCase();
   return Number(error?.code) === 49 || text.includes("invalidcredentials");
@@ -67,10 +87,16 @@ async function authenticateAgainstActiveDirectory(username, password) {
 
   const bindDn = String(process.env.AD_BIND_DN || "").trim();
   const bindPassword = String(process.env.AD_BIND_PASSWORD || "");
-  const userFilterTemplate =
-    String(process.env.AD_USER_FILTER || "(sAMAccountName={{username}})").trim();
-  const escapedUsername = escapeLdapFilter(username);
-  const userFilter = userFilterTemplate.replace(/\{\{\s*username\s*\}\}/gi, escapedUsername);
+  const normalized = normalizeAdUsername(username);
+  const userFilterTemplate = String(
+    process.env.AD_USER_FILTER ||
+      "(|(sAMAccountName={{username}})(userPrincipalName={{username_raw}}))"
+  ).trim();
+  const escapedSam = escapeLdapFilter(normalized.samAccountName || normalized.raw);
+  const escapedRaw = escapeLdapFilter(normalized.raw || normalized.samAccountName);
+  const userFilter = userFilterTemplate
+    .replace(/\{\{\s*username\s*\}\}/gi, escapedSam)
+    .replace(/\{\{\s*username_raw\s*\}\}/gi, escapedRaw);
   const connectTimeout = Number(process.env.AD_CONNECT_TIMEOUT_MS || 5000);
   const operationTimeout = Number(process.env.AD_TIMEOUT_MS || 10000);
   const client = new Client({
