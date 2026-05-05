@@ -9,7 +9,7 @@ const TYPES = [
   "SENTENCIA RELATORIA",
 ];
 
-const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS"];
+const TAB_KEYS = [...TYPES, "BUSCADOR", "ESTADISTICAS", "CATALOGO"];
 const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
@@ -372,6 +372,11 @@ function App() {
   /** Códigos permitidos: SP usuario SIGI (DNI) + cod_dep_sigi de la dependencia (mismo criterio que el backend). */
   const [sigiAllowedCodDepTokens, setSigiAllowedCodDepTokens] = useState([]);
   const [sigiDependenciaNombre, setSigiDependenciaNombre] = useState("");
+  const [catalogo, setCatalogo] = useState([]);
+  const [catalogoLoading, setCatalogoLoading] = useState(false);
+  const [catalogoError, setCatalogoError] = useState("");
+  const [newCategoriaByTipo, setNewCategoriaByTipo] = useState({});
+  const [newOpcionByCategoria, setNewOpcionByCategoria] = useState({});
 
   function localLogout() {
     setToken("");
@@ -551,6 +556,13 @@ function App() {
   }, [activeTab, dataSessionReady, user?.dependenciaId]);
 
   useEffect(() => {
+    if (!dataSessionReady) return;
+    if (activeTab !== "CATALOGO") return;
+    if (user?.rol !== "admin") return;
+    loadCatalogo();
+  }, [activeTab, dataSessionReady, user?.rol]);
+
+  useEffect(() => {
     if (multiDepGate !== "choose" || sigiDepOptions.length < 1) return;
     const inList = sigiDepOptions.some((o) => o.dependenciaId === user?.dependenciaId);
     setDepPickerChoice(inList ? user.dependenciaId : sigiDepOptions[0].dependenciaId);
@@ -597,6 +609,19 @@ function App() {
       setAnnulMaxHoursAfterCreate(h);
     }
     setMetaDependencias(Array.isArray(depsRes.data) ? depsRes.data : []);
+  }
+
+  async function loadCatalogo() {
+    setCatalogoLoading(true);
+    setCatalogoError("");
+    try {
+      const { data } = await api.get("/meta/recaudos-catalogo");
+      setCatalogo(Array.isArray(data?.tipos) ? data.tipos : []);
+    } catch (error) {
+      setCatalogoError(error.response?.data?.message || "No se pudo cargar el catálogo");
+    } finally {
+      setCatalogoLoading(false);
+    }
   }
 
   async function loadNextNumber(tipo) {
@@ -863,6 +888,45 @@ function App() {
     }
     if (activeTab === "BUSCADOR") await loadGlobalRows();
     if (activeTab === "ESTADISTICAS") await loadStats();
+    if (activeTab === "CATALOGO" && user?.rol === "admin") await loadCatalogo();
+  }
+
+  async function addCategoria(tipoRecaudoId) {
+    const nombre = String(newCategoriaByTipo[tipoRecaudoId] || "").trim();
+    if (!nombre) return;
+    await api.post("/meta/recaudos-catalogo/categorias", { tipoRecaudoId, nombre });
+    setNewCategoriaByTipo((prev) => ({ ...prev, [tipoRecaudoId]: "" }));
+    await loadCatalogo();
+    await loadCategorias();
+  }
+
+  async function editCategoria(cat) {
+    const nombre = prompt("Nuevo nombre de categoría:", cat.nombre);
+    if (nombre == null) return;
+    const trimmed = nombre.trim();
+    if (!trimmed) return;
+    await api.put(`/meta/recaudos-catalogo/categorias/${cat.id}`, { nombre: trimmed });
+    await loadCatalogo();
+    await loadCategorias();
+  }
+
+  async function addOpcion(categoriaId) {
+    const nombre = String(newOpcionByCategoria[categoriaId] || "").trim();
+    if (!nombre) return;
+    await api.post("/meta/recaudos-catalogo/opciones", { categoriaId, nombre });
+    setNewOpcionByCategoria((prev) => ({ ...prev, [categoriaId]: "" }));
+    await loadCatalogo();
+    await loadCategorias();
+  }
+
+  async function editOpcion(opcion) {
+    const nombre = prompt("Nuevo nombre de opción:", opcion.nombre);
+    if (nombre == null) return;
+    const trimmed = nombre.trim();
+    if (!trimmed) return;
+    await api.put(`/meta/recaudos-catalogo/opciones/${opcion.id}`, { nombre: trimmed });
+    await loadCatalogo();
+    await loadCategorias();
   }
 
   async function confirmDepPicker() {
@@ -1350,6 +1414,66 @@ function App() {
                 ))}
               </tbody>
             </table>
+          </section>
+        )}
+
+        {activeTab === "CATALOGO" && user?.rol === "admin" && (
+          <section className="card">
+            <h2>Catálogo de Recaudos</h2>
+            <p>Administrá tipos, categorías y opciones del detalle desplegable.</p>
+            {catalogoLoading && <p>Cargando catálogo...</p>}
+            {catalogoError && <p className="error">{catalogoError}</p>}
+            {!catalogoLoading && catalogo.map((tipo) => (
+              <div key={tipo.id} className="catalogo-tipo">
+                <h3>{tipo.nombre} <small>({tipo.codigo})</small></h3>
+                <div className="form-row">
+                  <input
+                    placeholder="Nueva categoría"
+                    value={newCategoriaByTipo[tipo.id] || ""}
+                    onChange={(e) =>
+                      setNewCategoriaByTipo((prev) => ({ ...prev, [tipo.id]: e.target.value }))
+                    }
+                  />
+                  <button type="button" onClick={() => addCategoria(tipo.id)}>Agregar categoría</button>
+                </div>
+                {(tipo.categorias || []).map((cat) => (
+                  <div key={cat.id} className="catalogo-categoria">
+                    <div className="catalogo-row">
+                      <strong>{cat.nombre}</strong>
+                      <button type="button" className="secondary" onClick={() => editCategoria(cat)}>
+                        Editar categoría
+                      </button>
+                    </div>
+                    <div className="form-row">
+                      <input
+                        placeholder="Nueva opción"
+                        value={newOpcionByCategoria[cat.id] || ""}
+                        onChange={(e) =>
+                          setNewOpcionByCategoria((prev) => ({ ...prev, [cat.id]: e.target.value }))
+                        }
+                      />
+                      <button type="button" onClick={() => addOpcion(cat.id)}>Agregar opción</button>
+                    </div>
+                    <ul className="catalogo-opciones">
+                      {(cat.opciones || []).map((op) => (
+                        <li key={op.id}>
+                          <span>{op.nombre}</span>
+                          <button type="button" className="secondary" onClick={() => editOpcion(op)}>
+                            Editar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </section>
+        )}
+        {activeTab === "CATALOGO" && user?.rol !== "admin" && (
+          <section className="card">
+            <h2>Catálogo de Recaudos</h2>
+            <p>No autorizado: esta sección es solo para administradores.</p>
           </section>
         )}
 

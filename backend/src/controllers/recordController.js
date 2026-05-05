@@ -3,11 +3,12 @@ const { getAnnulMaxHoursAfterCreate } = require("../config/appLimits");
 const ExcelJS = require("exceljs");
 const { logAudit } = require("../services/auditService");
 
-const TIPOS = [
-  "OFICIO",
-  "AUTO",
-  "SENTENCIA TRAMITE",
-  "SENTENCIA RELATORIA",
+const TIPOS_FALLBACK = [
+  { id: null, codigo: "OFICIO", nombre: "Oficios" },
+  { id: null, codigo: "AUTO", nombre: "Autos" },
+  { id: null, codigo: "SENT_TRAMITE", nombre: "Sentencia Trámite" },
+  { id: null, codigo: "SENT_RELATORIA", nombre: "Sentencia Relatoria" },
+  { id: null, codigo: "RECAUDO", nombre: "Recaudos" },
 ];
 
 const MOTIVOS_ANULACION = [
@@ -17,7 +18,7 @@ const MOTIVOS_ANULACION = [
 ];
 
 function canModify(user, createdBy) {
-  return user.rol === "admin" || user.nombre === createdBy;
+  return Number(user?.rolId) === 1 || String(user?.rol || "").toLowerCase() === "admin" || user.nombre === createdBy;
 }
 
 function getDependenciaId(req) {
@@ -30,11 +31,61 @@ function getDependenciaId(req) {
   return dependenciaId;
 }
 
+async function getTiposRecaudoActivos() {
+  try {
+    const rs = await runQuery(
+      `SELECT id, codigo, nombre
+       FROM dbo.tipos_recaudo
+       WHERE activo = 1
+       ORDER BY orden, nombre`
+    );
+    if (Array.isArray(rs.recordset) && rs.recordset.length > 0) {
+      return rs.recordset;
+    }
+  } catch (_) {
+    // Compatibilidad: si aún no existe la tabla nueva, continuar con fallback.
+  }
+  return TIPOS_FALLBACK;
+}
+
+async function resolveTipoRecaudo({ tipo, tipoRecaudoId }) {
+  const tipos = await getTiposRecaudoActivos();
+  const normalizedTipo = String(tipo || "").trim();
+  const normalizedTipoUpper = normalizedTipo.toUpperCase();
+  const normalizedTipoNoAccent = normalizedTipoUpper
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (Number.isInteger(Number(tipoRecaudoId)) && Number(tipoRecaudoId) > 0) {
+    const byId = tipos.find((t) => Number(t.id) === Number(tipoRecaudoId));
+    if (!byId) return null;
+    return { id: byId.id, tipoTexto: String(byId.codigo || byId.nombre || "").toUpperCase() };
+  }
+
+  if (!normalizedTipo) return null;
+  const byCodeOrName = tipos.find((t) => {
+    const code = String(t.codigo || "").trim().toUpperCase();
+    const name = String(t.nombre || "").trim().toUpperCase();
+    const nameNoAccent = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return (
+      code === normalizedTipoUpper ||
+      name === normalizedTipoUpper ||
+      nameNoAccent === normalizedTipoNoAccent
+    );
+  });
+  if (!byCodeOrName) return null;
+  return {
+    id: byCodeOrName.id ?? null,
+    tipoTexto: String(byCodeOrName.codigo || byCodeOrName.nombre || "").toUpperCase(),
+  };
+}
+
 async function getNextNumber(req, res, next) {
   try {
     const { tipo } = req.params;
     const dependenciaId = getDependenciaId(req);
-    if (!TIPOS.includes(tipo)) {
+    const resolved = await resolveTipoRecaudo({ tipo });
+    if (!resolved) {
       return res.status(400).json({ message: "Tipo inválido" });
     }
     const anio = new Date().getFullYear();
@@ -42,9 +93,9 @@ async function getNextNumber(req, res, next) {
       `SELECT ISNULL(MAX(numero), 0) + 1 AS proximo
        FROM dbo.registros
        WHERE tipo = @tipo AND anio = @anio AND dependencia_id = @dependenciaId`,
-      { tipo, anio, dependenciaId }
+      { tipo: resolved.tipoTexto, anio, dependenciaId }
     );
-    return res.json({ tipo, anio, proximo: rs.recordset[0].proximo });
+    return res.json({ tipo: resolved.tipoTexto, anio, proximo: rs.recordset[0].proximo });
   } catch (error) {
     return next(error);
   }
@@ -68,22 +119,26 @@ async function listRecords(req, res, next) {
 
     let query = `
       SELECT TOP (${cappedLimit})
-        id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha,
+        r.id, r.dependencia, r.tipo, r.tipo_recaudo_id AS tipoRecaudoId, r.numero, r.anio, r.expediente, r.detalle, r.usuario, r.fecha,
         ISNULL(remitido, 0) AS remitido, remitido_por, remitido_fecha,
         ISNULL(anulado_por, '') AS anulado_por,
         ISNULL(anulacion_motivo, '') AS anulacion_motivo,
         ISNULL(anulacion_observacion, '') AS anulacion_observacion,
         anulacion_fecha
-      FROM dbo.registros
-      WHERE (expediente LIKE @term OR detalle LIKE @term OR usuario LIKE @term OR tipo LIKE @term)
-        AND fecha BETWEEN @fromDate AND @toDate
-        AND dependencia_id = @dependenciaId
+      FROM dbo.registros r
+      WHERE (r.expediente LIKE @term OR r.detalle LIKE @term OR r.usuario LIKE @term OR r.tipo LIKE @term)
+        AND r.fecha BETWEEN @fromDate AND @toDate
+        AND r.dependencia_id = @dependenciaId
     `;
 
     const bindings = { term, fromDate, toDate, dependenciaId };
     if (tipo && tipo !== "TODOS") {
+      const resolved = await resolveTipoRecaudo({ tipo });
+      if (!resolved) {
+        return res.status(400).json({ message: "Tipo inválido" });
+      }
       query += " AND tipo = @tipo";
-      bindings.tipo = tipo;
+      bindings.tipo = resolved.tipoTexto;
     }
 
     query += " ORDER BY anio DESC, numero DESC";
@@ -112,21 +167,25 @@ async function exportRecordsExcel(req, res, next) {
 
     let query = `
       SELECT TOP (${cappedLimit})
-        id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha,
+        r.id, r.dependencia, r.tipo, r.tipo_recaudo_id AS tipoRecaudoId, r.numero, r.anio, r.expediente, r.detalle, r.usuario, r.fecha,
         ISNULL(remitido, 0) AS remitido,
         ISNULL(anulado_por, '') AS anulado_por,
         ISNULL(anulacion_motivo, '') AS anulacion_motivo,
         ISNULL(anulacion_observacion, '') AS anulacion_observacion,
         anulacion_fecha
-      FROM dbo.registros
-      WHERE (expediente LIKE @term OR detalle LIKE @term OR usuario LIKE @term OR tipo LIKE @term)
-        AND fecha BETWEEN @fromDate AND @toDate
-        AND dependencia_id = @dependenciaId
+      FROM dbo.registros r
+      WHERE (r.expediente LIKE @term OR r.detalle LIKE @term OR r.usuario LIKE @term OR r.tipo LIKE @term)
+        AND r.fecha BETWEEN @fromDate AND @toDate
+        AND r.dependencia_id = @dependenciaId
     `;
     const bindings = { term, fromDate, toDate, dependenciaId };
     if (tipo && tipo !== "TODOS") {
+      const resolved = await resolveTipoRecaudo({ tipo });
+      if (!resolved) {
+        return res.status(400).json({ message: "Tipo inválido" });
+      }
       query += " AND tipo = @tipo";
-      bindings.tipo = tipo;
+      bindings.tipo = resolved.tipoTexto;
     }
     query += " ORDER BY anio DESC, numero DESC";
     const rs = await runQuery(query, bindings);
@@ -178,8 +237,9 @@ async function createRecord(req, res, next) {
   const transaction = new sql.Transaction(await getPool());
   try {
     const dependenciaId = getDependenciaId(req);
-    const { tipo, expediente, detalle = "" } = req.body;
-    if (!TIPOS.includes(tipo)) {
+    const { tipo, tipoRecaudoId, expediente, detalle = "" } = req.body;
+    const resolved = await resolveTipoRecaudo({ tipo, tipoRecaudoId });
+    if (!resolved) {
       return res.status(400).json({ message: "Tipo inválido" });
     }
     if (!expediente || !expediente.trim()) {
@@ -189,7 +249,8 @@ async function createRecord(req, res, next) {
     const anio = new Date().getFullYear();
     await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
     const request = new sql.Request(transaction);
-    request.input("tipo", tipo);
+    request.input("tipo", resolved.tipoTexto);
+    request.input("tipoRecaudoId", resolved.id);
     request.input("anio", anio);
     request.input("dependenciaId", dependenciaId);
     request.input("dependencia", req.user.dependencia || "GENERAL");
@@ -203,8 +264,8 @@ async function createRecord(req, res, next) {
       FROM dbo.registros WITH (UPDLOCK, HOLDLOCK)
       WHERE tipo = @tipo AND anio = @anio AND dependencia_id = @dependenciaId;
 
-      INSERT INTO dbo.registros (dependencia_id, dependencia, tipo, numero, anio, expediente, detalle, usuario, fecha)
-      VALUES (@dependenciaId, @dependencia, @tipo, @nuevoNumero, @anio, @expediente, @detalle, @usuario, SYSUTCDATETIME());
+      INSERT INTO dbo.registros (dependencia_id, dependencia, tipo, tipo_recaudo_id, numero, anio, expediente, detalle, usuario, fecha)
+      VALUES (@dependenciaId, @dependencia, @tipo, @tipoRecaudoId, @nuevoNumero, @anio, @expediente, @detalle, @usuario, SYSUTCDATETIME());
 
       SELECT SCOPE_IDENTITY() AS id, @nuevoNumero AS numero, @anio AS anio;
     `);
@@ -219,13 +280,14 @@ async function createRecord(req, res, next) {
       accion: "CREACION",
       campo: "-",
       valorAnterior: "-",
-      valorNuevo: `${tipo} N° ${created.numero}/${created.anio}`,
+      valorNuevo: `${resolved.tipoTexto} N° ${created.numero}/${created.anio}`,
       usuario: req.user.nombre,
     });
 
     return res.status(201).json({
       id: Number(created.id),
-      tipo,
+      tipo: resolved.tipoTexto,
+      tipoRecaudoId: resolved.id,
       dependencia: req.user.dependencia || "GENERAL",
       numero: created.numero,
       anio: created.anio,

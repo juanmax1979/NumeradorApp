@@ -9,14 +9,16 @@ async function listUsers(req, res, next) {
          u.usuario,
          u.nombre_completo AS nombreCompleto,
          u.dni,
-         u.rol,
+         COALESCE(r.rol, u.rol) AS rol,
+         u.rol_id AS rolId,
          u.dependencia_id AS dependenciaId,
          d.nombre AS dependencia,
          d.fuero AS fuero,
          d.sistema_origen AS sistemaOrigen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
-       ORDER BY rol, nombre`,
+       LEFT JOIN dbo.roles r ON r.id = u.rol_id
+       ORDER BY COALESCE(r.rol, u.rol), nombre`,
       {}
     );
     return res.json(rs.recordset);

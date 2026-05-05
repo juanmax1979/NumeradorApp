@@ -3,12 +3,7 @@ const { z } = require("zod");
 /** Alineado con consulta SIGI: hasta 8 dígitos + / + año + - + circ. (1–4 dígitos) */
 const expedienteRegex = /^\d{1,8}\/\d{4}-\d{1,4}$/;
 
-const tiposEnum = z.enum([
-  "OFICIO",
-  "AUTO",
-  "SENTENCIA TRAMITE",
-  "SENTENCIA RELATORIA",
-]);
+const tiposEnum = z.string().trim().min(1).max(80);
 
 const loginSchema = z.object({
   usuario: z.string().min(1).max(120),
@@ -27,7 +22,8 @@ const switchDependenciaSchema = z.object({
 });
 
 const createRecordSchema = z.object({
-  tipo: tiposEnum,
+  tipo: tiposEnum.optional(),
+  tipoRecaudoId: z.coerce.number().int().positive().optional(),
   expediente: z
     .string()
     .trim()
@@ -36,6 +32,9 @@ const createRecordSchema = z.object({
       "Expediente inválido. Formato NNNNNNNN/AAAA-CC (hasta 8 dígitos, año 4, circ. 1–4 dígitos)"
     ),
   detalle: z.string().trim().max(500).optional().default(""),
+}).refine((data) => Boolean(data.tipo) || Number.isInteger(data.tipoRecaudoId), {
+  message: "Debe informar tipo o tipoRecaudoId",
+  path: ["tipo"],
 });
 
 const updateRecordSchema = z.object({

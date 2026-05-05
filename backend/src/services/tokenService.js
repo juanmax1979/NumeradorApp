@@ -14,9 +14,12 @@ function dniForJwtPayload(user) {
 }
 
 function signAccessToken(user) {
+  const rolId = Number(user.rol_id);
+  const rolName = String(user.rol || "").trim().toLowerCase();
   const payload = {
     nombre: user.nombre,
-    rol: user.rol,
+    rol: rolName || "user",
+    rolId: Number.isInteger(rolId) && rolId > 0 ? rolId : undefined,
     dependencia: user.dependencia,
     dependenciaId: Number(user.dependencia_id),
     fuero: String(user.fuero || "PENAL").trim().toUpperCase(),

@@ -28,11 +28,12 @@ async function seedUsersIfEmpty() {
   for (const user of DEFAULT_USERS) {
     const hash = await bcrypt.hash(user.pass, rounds);
     await runQuery(
-      `INSERT INTO dbo.usuarios (nombre, password_hash, rol, dependencia, dependencia_id)
+      `INSERT INTO dbo.usuarios (nombre, password_hash, rol, rol_id, dependencia, dependencia_id)
        VALUES (
          @nombre,
          @password_hash,
          @rol,
+         COALESCE((SELECT TOP 1 id FROM dbo.roles WHERE LOWER(rol) = LOWER(@rol)), (SELECT TOP 1 id FROM dbo.roles WHERE rol = 'user')),
          @dependencia,
          COALESCE(
            (SELECT TOP 1 id FROM dbo.dependencias WHERE nombre = @dependencia),

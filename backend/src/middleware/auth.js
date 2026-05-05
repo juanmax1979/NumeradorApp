@@ -20,8 +20,13 @@ function authRequired(req, res, next) {
 }
 
 function requireRole(...roles) {
+  const normalized = roles.map((r) => String(r).trim().toLowerCase());
+  const isAdminExpected = normalized.includes("admin") || normalized.includes("1");
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.rol)) {
+    const rolId = Number(req.user?.rolId);
+    const rolName = String(req.user?.rol || "").trim().toLowerCase();
+    const isAdmin = rolId === 1 || rolName === "admin";
+    if (!req.user || (isAdminExpected && !isAdmin)) {
       return res.status(403).json({ message: "No autorizado" });
     }
     return next();

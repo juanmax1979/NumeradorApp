@@ -37,7 +37,7 @@ async function getStats(req, res, next) {
     );
 
     let logRs = { recordset: [] };
-    if (req.user.rol === "admin") {
+    if (Number(req.user?.rolId) === 1 || String(req.user?.rol || "").toLowerCase() === "admin") {
       logRs = await runQuery(
         `SELECT TOP (100)
            fecha,

@@ -740,6 +740,48 @@ button.secondary:hover {
   font-size: 12px;
 }
 
+.catalogo-tipo {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+
+.catalogo-categoria {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px dashed var(--azul-300);
+  border-radius: var(--radius-sm);
+}
+
+.catalogo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.catalogo-opciones {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.catalogo-opciones li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--azul-200);
+}
+
+.catalogo-opciones li:last-child {
+  border-bottom: none;
+}
+
 .sigi-table-wrap {
   overflow-x: auto;
   border-radius: var(--radius-sm);

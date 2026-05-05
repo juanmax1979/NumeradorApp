@@ -1,4 +1,4 @@
-const bcrypt = require("bcryptjs");
+﻿const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { runQuery } = require("../config/db");
 const {
@@ -24,6 +24,7 @@ function mapSessionUser(user) {
     nombreCompleto: user.nombre_completo || user.nombre,
     dni: user.dni || null,
     rol: user.rol,
+    rolId: Number(user.rol_id),
     dependencia: user.dependencia_nombre || user.dependencia || "GENERAL",
     dependenciaId: Number(user.dependencia_id),
     fuero: String(user.fuero || "PENAL").trim().toUpperCase(),
@@ -69,8 +70,12 @@ async function ensureLocalUserForAdLogin(usuario, fullName = null, dni = null) {
   const placeholder = `ad:${crypto.randomUUID()}`;
   const hash = await bcrypt.hash(placeholder, rounds);
   await runQuery(
-    `INSERT INTO dbo.usuarios (nombre, usuario, nombre_completo, dni, password_hash, rol, dependencia, dependencia_id)
-     VALUES (@nombre, @usuario, @nombre_completo, @dni, @password_hash, @rol, @dependencia, @dependencia_id)`,
+    `INSERT INTO dbo.usuarios (nombre, usuario, nombre_completo, dni, password_hash, rol, rol_id, dependencia, dependencia_id)
+     VALUES (
+       @nombre, @usuario, @nombre_completo, @dni, @password_hash, @rol,
+       COALESCE((SELECT TOP 1 id FROM dbo.roles WHERE LOWER(rol) = LOWER(@rol)), (SELECT TOP 1 id FROM dbo.roles WHERE rol = 'user')),
+       @dependencia, @dependencia_id
+     )`,
     {
       nombre: usuario,
       usuario,
@@ -110,7 +115,7 @@ async function login(req, res, next) {
   try {
     const { usuario, password, pcName, forceSession } = req.body;
     if (!usuario || !password) {
-      return res.status(400).json({ message: "Usuario y contraseña son obligatorios" });
+      return res.status(400).json({ message: "Usuario y contraseÃ±a son obligatorios" });
     }
 
     if (isActiveDirectoryAuthEnabled()) {
@@ -124,7 +129,7 @@ async function login(req, res, next) {
         });
       }
       if (!adResult.ok) {
-        return res.status(401).json({ message: "Credenciales inválidas" });
+        return res.status(401).json({ message: "Credenciales invÃ¡lidas" });
       }
       const loginName = String(adResult.username || usuario).trim();
       const loginFullName = adResult.fullName || null;
@@ -139,7 +144,8 @@ async function login(req, res, next) {
            u.nombre_completo,
            u.dni,
            u.password_hash,
-           u.rol,
+           COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
            u.dependencia,
            u.dependencia_id,
            d.nombre AS dependencia_nombre,
@@ -147,6 +153,7 @@ async function login(req, res, next) {
            d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
         { usuario: loginName }
       );
@@ -170,7 +177,8 @@ async function login(req, res, next) {
              u.nombre_completo,
              u.dni,
              u.password_hash,
-             u.rol,
+             COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
              u.dependencia,
              u.dependencia_id,
              d.nombre AS dependencia_nombre,
@@ -178,6 +186,7 @@ async function login(req, res, next) {
              d.sistema_origen
            FROM dbo.usuarios u
            LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
            WHERE u.nombre = @usuario OR u.usuario = @usuario`,
           { usuario: loginName }
         );
@@ -198,7 +207,8 @@ async function login(req, res, next) {
            u.nombre_completo,
            u.dni,
            u.password_hash,
-           u.rol,
+           COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
            u.dependencia,
            u.dependencia_id,
            d.nombre AS dependencia_nombre,
@@ -206,6 +216,7 @@ async function login(req, res, next) {
            d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
         { usuario: loginName }
       );
@@ -221,7 +232,7 @@ async function login(req, res, next) {
       if (activeSession && activeSession.pc_name !== pc && !forceSession) {
         return res.status(409).json({
           code: "SESSION_ACTIVE",
-          message: `El usuario está activo en ${activeSession.pc_name}`,
+          message: `El usuario estÃ¡ activo en ${activeSession.pc_name}`,
           activePc: activeSession.pc_name,
         });
       }
@@ -252,7 +263,8 @@ async function login(req, res, next) {
            u.nombre_completo,
            u.dni,
            u.password_hash,
-           u.rol,
+           COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
            u.dependencia,
            u.dependencia_id,
            d.nombre AS dependencia_nombre,
@@ -260,6 +272,7 @@ async function login(req, res, next) {
            d.sistema_origen
          FROM dbo.usuarios u
          LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
          WHERE u.nombre = @usuario OR u.usuario = @usuario`,
         { usuario }
       );
@@ -270,7 +283,7 @@ async function login(req, res, next) {
 
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) {
-        return res.status(401).json({ message: "Contraseña incorrecta" });
+        return res.status(401).json({ message: "ContraseÃ±a incorrecta" });
       }
       const pc = (pcName || "PC-Desconocida").slice(0, 120);
       const sessionRs = await runQuery(
@@ -282,7 +295,7 @@ async function login(req, res, next) {
       if (activeSession && activeSession.pc_name !== pc && !forceSession) {
         return res.status(409).json({
           code: "SESSION_ACTIVE",
-          message: `El usuario está activo en ${activeSession.pc_name}`,
+          message: `El usuario estÃ¡ activo en ${activeSession.pc_name}`,
           activePc: activeSession.pc_name,
         });
       }
@@ -315,7 +328,7 @@ async function changeOwnPassword(req, res, next) {
   try {
     if (isActiveDirectoryAuthEnabled()) {
       return res.status(400).json({
-        message: "El cambio de contraseña se gestiona desde Active Directory",
+        message: "El cambio de contraseÃ±a se gestiona desde Active Directory",
       });
     }
 
@@ -329,11 +342,11 @@ async function changeOwnPassword(req, res, next) {
     if (!row) return res.status(404).json({ message: "Usuario no encontrado" });
 
     const ok = await bcrypt.compare(currentPassword, row.password_hash);
-    if (!ok) return res.status(401).json({ message: "Contraseña actual incorrecta" });
+    if (!ok) return res.status(401).json({ message: "ContraseÃ±a actual incorrecta" });
 
     if (!/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
       return res.status(400).json({
-        message: "La nueva clave debe incluir al menos una mayúscula y un número",
+        message: "La nueva clave debe incluir al menos una mayÃºscula y un nÃºmero",
       });
     }
 
@@ -343,7 +356,7 @@ async function changeOwnPassword(req, res, next) {
       "UPDATE dbo.usuarios SET password_hash = @hash WHERE nombre = @usuario",
       { hash: newHash, usuario }
     );
-    return res.json({ message: "Contraseña actualizada correctamente" });
+    return res.json({ message: "ContraseÃ±a actualizada correctamente" });
   } catch (error) {
     return next(error);
   }
@@ -359,7 +372,7 @@ async function logout(req, res, next) {
     await runQuery("DELETE FROM dbo.sesiones WHERE usuario = @usuario", {
       usuario: req.user.nombre,
     });
-    return res.json({ message: "Sesión cerrada" });
+    return res.json({ message: "SesiÃ³n cerrada" });
   } catch (error) {
     return next(error);
   }
@@ -369,7 +382,7 @@ async function switchDependencia(req, res, next) {
   try {
     const targetId = Number(req.body?.dependenciaId);
     if (!Number.isInteger(targetId) || targetId <= 0) {
-      return res.status(400).json({ message: "dependenciaId inválido" });
+      return res.status(400).json({ message: "dependenciaId invÃ¡lido" });
     }
 
     const dniInt = await resolveDniIntForRequest(req);
@@ -381,7 +394,7 @@ async function switchDependencia(req, res, next) {
         });
       } catch {
         return res.status(503).json({
-          message: "No se pudo consultar SIGI para validar dependencias. Intente más tarde.",
+          message: "No se pudo consultar SIGI para validar dependencias. Intente mÃ¡s tarde.",
         });
       }
     }
@@ -391,12 +404,12 @@ async function switchDependencia(req, res, next) {
       if (targetId !== currentId) {
         return res.status(403).json({
           message:
-            "Sin asignación SIGI reconocible (COD_DEP / cod_dep_sigi). Solo puede operar con su dependencia actual del Numerador.",
+            "Sin asignaciÃ³n SIGI reconocible (COD_DEP / cod_dep_sigi). Solo puede operar con su dependencia actual del Numerador.",
         });
       }
     } else if (!allowedIds.includes(targetId)) {
       return res.status(403).json({
-        message: "No puede operar en la dependencia elegida según su alta en SIGI.",
+        message: "No puede operar en la dependencia elegida segÃºn su alta en SIGI.",
       });
     }
 
@@ -422,7 +435,8 @@ async function switchDependencia(req, res, next) {
          u.usuario,
          u.nombre_completo,
          u.dni,
-         u.rol,
+         COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
          u.dependencia,
          u.dependencia_id,
          d.nombre AS dependencia_nombre,
@@ -430,6 +444,7 @@ async function switchDependencia(req, res, next) {
          d.sistema_origen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
        WHERE u.nombre = @nombre OR u.usuario = @nombre`,
       { nombre: req.user.nombre }
     );
@@ -457,7 +472,7 @@ async function refresh(req, res, next) {
 
     const usuario = await consumeRefreshToken(refreshToken);
     if (!usuario) {
-      return res.status(401).json({ message: "Refresh token inválido o vencido" });
+      return res.status(401).json({ message: "Refresh token invÃ¡lido o vencido" });
     }
 
     await revokeRefreshToken(refreshToken);
@@ -467,7 +482,8 @@ async function refresh(req, res, next) {
          u.usuario,
          u.nombre_completo,
          u.dni,
-         u.rol,
+         COALESCE(r.rol, u.rol) AS rol,
+           u.rol_id,
          u.dependencia,
          u.dependencia_id,
          d.nombre AS dependencia_nombre,
@@ -475,11 +491,12 @@ async function refresh(req, res, next) {
          d.sistema_origen
        FROM dbo.usuarios u
        LEFT JOIN dbo.dependencias d ON d.id = u.dependencia_id
+         LEFT JOIN dbo.roles r ON r.id = u.rol_id
        WHERE u.nombre = @usuario OR u.usuario = @usuario`,
       { usuario }
     );
     const user = userRs.recordset[0];
-    if (!user) return res.status(401).json({ message: "Usuario inválido" });
+    if (!user) return res.status(401).json({ message: "Usuario invÃ¡lido" });
 
     const newRefresh = generateRefreshToken();
     await saveRefreshToken(user.nombre, newRefresh);
@@ -502,3 +519,5 @@ module.exports = {
   refresh,
   switchDependencia,
 };
+
+

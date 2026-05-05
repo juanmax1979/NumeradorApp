@@ -75,17 +75,13 @@ const options = {
         },
         CreateRecordRequest: {
           type: "object",
-          required: ["tipo", "expediente"],
+          required: ["expediente"],
           properties: {
             tipo: {
               type: "string",
-              enum: [
-                "OFICIO",
-                "AUTO",
-                "SENTENCIA TRAMITE",
-                "SENTENCIA RELATORIA",
-              ],
+              description: "Código o nombre del tipo de recaudo",
             },
+            tipoRecaudoId: { type: "integer", minimum: 1 },
             expediente: tipoExpediente,
             detalle: { type: "string", maxLength: 500, default: "" },
           },
@@ -664,6 +660,17 @@ const options = {
         get: {
           tags: ["Meta"],
           summary: "Listar dependencias",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Lista" },
+            401: { description: "No autenticado" },
+          },
+        },
+      },
+      "/api/meta/tipos-recaudo": {
+        get: {
+          tags: ["Meta"],
+          summary: "Listar tipos de recaudo activos",
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: "Lista" },
